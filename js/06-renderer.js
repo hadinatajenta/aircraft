@@ -140,7 +140,7 @@
       // 6. Render Pipelines (4x MSAA for crisp hard-surface edges, created asynchronously)
       const sampleCount = 4;
 
-      let skyPipeline, meshPipeline, vfxPipeline;
+      let skyPipeline, meshPipeline, vfxPipeline, blastPipeline;
       try {
         // Pipeline A: Fullscreen Atmospheric Sky
         skyPipeline = await device.createRenderPipelineAsync({
@@ -219,6 +219,37 @@
               blend: {
                 color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
                 alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+              }
+            }]
+          },
+          primitive: {
+            topology: 'triangle-list',
+            cullMode: 'none'
+          },
+          depthStencil: {
+            format: 'depth24plus',
+            depthWriteEnabled: false,
+            depthCompare: 'less-equal'
+          },
+          multisample: { count: sampleCount }
+        });
+
+        blastPipeline = await device.createRenderPipelineAsync({
+          label: 'Detonation Fireball Pipeline',
+          layout: pipelineLayout,
+          vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [vertexBufferLayout]
+          },
+          fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{
+              format: presentationFormat,
+              blend: {
+                color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+                alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
               }
             }]
           },
@@ -554,6 +585,14 @@
         }
         if (b.shard.count > 0) {
           renderPass.drawIndexed(meshes.shard.indexCount, b.shard.count, meshes.shard.firstIndex, 0, b.shard.first);
+        }
+        if (b.blastRing.count > 0) {
+          renderPass.drawIndexed(meshes.blastRing.indexCount, b.blastRing.count, meshes.blastRing.firstIndex, 0, b.blastRing.first);
+        }
+
+        if (b.blastSphere.count > 0) {
+          renderPass.setPipeline(blastPipeline);
+          renderPass.drawIndexed(meshes.blastSphere.indexCount, b.blastSphere.count, meshes.blastSphere.firstIndex, 0, b.blastSphere.first);
         }
         if (b.shieldPanel.count > 0) {
           renderPass.drawIndexed(meshes.shieldPanel.indexCount, b.shieldPanel.count, meshes.shieldPanel.firstIndex, 0, b.shieldPanel.first);

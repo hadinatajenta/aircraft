@@ -11,6 +11,8 @@
     const ALLIED_SWARM_COUNT = 6;  // 6 wingman swarm drones deployed on 'E'
     const MAX_PARTICLES      = 280;
     const MAX_SPEEDLINES     = 45;
+    const MAX_BLASTS         = 14;
+    const BLAST_LIFE         = 0.55;
     const TERRAIN_SLICES     = 8;
     const TERRAIN_DEPTH      = 60.0;
 
@@ -130,6 +132,11 @@
           x: 0, y: 0, z: 0, len: 1
         }));
 
+        this.blasts = Array.from({ length: MAX_BLASTS }, () => ({
+          active: false, x: 0, y: 0, z: 0, age: 0, life: BLAST_LIFE,
+          radius: 8, r: 1.0, g: 0.70, b: 0.28, spin: 0
+        }));
+
         // Pre-allocate CPU staging arrays for GPU upload
         this.instanceBufferData = new Float32Array(MAX_INSTANCES * FLOATS_PER_INST);
         this.sceneUniformData   = new Float32Array(64); // 256 bytes
@@ -217,6 +224,7 @@
         }
         for (const m of this.missiles) m.active = false;
         for (const pt of this.particles) pt.active = false;
+        for (const blast of this.blasts) blast.active = false;
         for (const d of this.drones) d.active = false;
         for (const sd of this.swarmDrones) {
           sd.active = false;
@@ -590,6 +598,25 @@
         }
 
         gunship.muzzleFlash = 0.11;
+      }
+
+      spawnBlast(x, y, z, radius, r, g, b) {
+        for (let i = 0; i < MAX_BLASTS; i++) {
+          const blast = this.blasts[i];
+          if (blast.active) continue;
+          blast.active = true;
+          blast.x = x;
+          blast.y = y;
+          blast.z = z;
+          blast.age = 0;
+          blast.life = BLAST_LIFE;
+          blast.radius = radius;
+          blast.r = r;
+          blast.g = g;
+          blast.b = b;
+          blast.spin = Math.random() * Math.PI * 2;
+          return;
+        }
       }
 
       spawnExplosion(x, y, z, count, scaleMul = 1.0) {
@@ -1209,6 +1236,7 @@
                 if (!this.reducedMotion) {
                   this.cam.shake = Math.min(0.55, this.cam.shake + (d.enemyType === 1 ? 0.34 : 0.22));
                 }
+                this.spawnBlast(d.x, d.y, d.z, d.enemyType === 1 ? 10.0 : 7.0, 1.0, 0.68, 0.26);
               } else {
                 this.score += 25;
                 this.updateHUD();
@@ -1368,7 +1396,7 @@
               this.targetsDestroyed += 1;
               this.updateHUD();
 
-              // High-energy multi-layered warhead detonation burst
+              this.spawnBlast(d.x, d.y, d.z, d.enemyType === 1 ? 16.0 : 12.0, 1.0, 0.66, 0.22);
               this.spawnExplosion(
                 d.x, d.y, d.z,
                 d.enemyType === 1 ? 48 : 38,
@@ -1406,8 +1434,10 @@
               m.active = false;
               this.spawnExplosion(m.x, m.y, m.z, 32, 1.35);
               if (this.isMothershipShielded()) {
+                this.spawnBlast(m.x, m.y, m.z, 10.0, 0.35, 0.85, 1.0);
                 this.blockMothershipHit(m.x, m.y, m.z);
               } else {
+                this.spawnBlast(m.x, m.y, m.z, 15.0, 1.0, 0.66, 0.22);
                 this.damageMothership(MOTHERSHIP_MISSILE_DAMAGE, m.x, m.y, m.z);
               }
             }
@@ -1498,6 +1528,7 @@
 
           if (kamikazeDistance < KAMIKAZE_TRIGGER_RANGE) {
             sd.active = false;
+            this.spawnBlast(sd.x, sd.y, sd.z, 11.0, 1.0, 0.55, 0.18);
             this.spawnExplosion(sd.x, sd.y, sd.z, 34, 1.45);
             if (!this.reducedMotion) this.cam.shake = Math.min(0.7, this.cam.shake + 0.3);
             this.applyJetDamage(KAMIKAZE_DAMAGE, sd.x, sd.y, sd.z, 1.0);
@@ -1601,6 +1632,14 @@
           if (pt.life <= 0) pt.active = false;
         }
 
+        for (let i = 0; i < MAX_BLASTS; i++) {
+          const blast = this.blasts[i];
+          if (!blast.active) continue;
+          blast.age += dt;
+          blast.spin += dt * 2.4;
+          if (blast.age >= blast.life) blast.active = false;
+        }
+
         // 8. Scroll World Environment (Terrain & Speed Lines — No Clouds)
         const worldSpeed = 62.0;
         this.terrainScrollZ = (this.terrainScrollZ + worldSpeed * dt) % TERRAIN_DEPTH;
@@ -1657,6 +1696,7 @@
         shieldDrone.active = false;
         this.score += 150;
         this.targetsDestroyed += 1;
+        this.spawnBlast(shieldDrone.x, shieldDrone.y, shieldDrone.z, 7.0, 0.40, 0.85, 1.0);
         this.spawnExplosion(shieldDrone.x, shieldDrone.y, shieldDrone.z, 26, 1.15);
         if (!this.reducedMotion) this.cam.shake = Math.min(0.5, this.cam.shake + 0.18);
         this.updateHUD();
@@ -1993,12 +2033,13 @@
           }
         }
 
-        // Homing missile rocket motor plumes attached to each active missile's tail
+        // Rocket motor flames on each active homing missile: a hot inner core plus a wide outer flame
         for (let i = 0; i < MAX_MISSILES; i++) {
           const ms = this.missiles[i];
           if (!ms.active) continue;
+
           transformAircraftPoint(
-            0, 0, 1.55,
+            0, 0, 1.62,
             ms.x, ms.y, ms.z,
             ms.yaw, ms.pitch, ms.roll,
             this.tempVec3A
@@ -2006,9 +2047,23 @@
           pushInstance(
             this.tempVec3A[0], this.tempVec3A[1], this.tempVec3A[2],
             ms.yaw, ms.pitch, ms.roll,
-            0.72, 0.72, 1.55 * pulse,
-            1.0, 0.72, 0.24, 0.96,
-            4.0, 2.1, 0, 0
+            1.00, 1.00, 1.85 * pulse,
+            0.86, 0.28, 0.05, 0.92,
+            4.0, 0.0, 0, 0
+          );
+
+          transformAircraftPoint(
+            0, 0, 1.46,
+            ms.x, ms.y, ms.z,
+            ms.yaw, ms.pitch, ms.roll,
+            this.tempVec3A
+          );
+          pushInstance(
+            this.tempVec3A[0], this.tempVec3A[1], this.tempVec3A[2],
+            ms.yaw, ms.pitch, ms.roll,
+            0.52, 0.52, 1.25 * pulse,
+            0.80, 0.62, 0.24, 0.85,
+            4.0, 0.0, 0, 0
           );
         }
 
@@ -2127,6 +2182,43 @@
           );
         }
         batches.shieldRing = { first: shieldRingStart, count: instCount - shieldRingStart };
+
+        // Detonation fireballs and expanding shockwave rings
+        const blastFireStart = instCount;
+        for (let i = 0; i < MAX_BLASTS; i++) {
+          const blast = this.blasts[i];
+          if (!blast.active) continue;
+          const progress = Math.min(1, blast.age / blast.life);
+          const eased = 1 - (1 - progress) * (1 - progress);
+          const core = blast.radius * (0.14 + eased * 0.28);
+          const holdFade = progress < 0.65 ? 1.0 : Math.max(0, 1 - (progress - 0.65) / 0.35);
+          pushInstance(
+            blast.x, blast.y, blast.z,
+            blast.spin, blast.spin * 0.7, blast.spin * 0.45,
+            core, core, core,
+            0.95, 0.85 - progress * 0.62, 0.55 - progress * 0.50, holdFade,
+            4.0, 0.0, 0, 0
+          );
+        }
+        batches.blastSphere = { first: blastFireStart, count: instCount - blastFireStart };
+
+        const blastWaveStart = instCount;
+        for (let i = 0; i < MAX_BLASTS; i++) {
+          const blast = this.blasts[i];
+          if (!blast.active) continue;
+          const progress = Math.min(1, blast.age / blast.life);
+          const eased = 1 - (1 - progress) * (1 - progress);
+          const wave = blast.radius * (0.22 + eased * 0.80);
+          const waveFade = (1 - progress) * 0.90;
+          pushInstance(
+            blast.x, blast.y, blast.z,
+            0, 0, 0,
+            wave, wave, wave,
+            blast.r, blast.g * 0.72 + 0.10, blast.b * 0.45 + 0.08, waveFade,
+            4.0, 0.0, 0, 0
+          );
+        }
+        batches.blastRing = { first: blastWaveStart, count: instCount - blastWaveStart };
 
         // 7. EXPLOSION PARTICLES & HIGH-SPEED AIR STREAM LINES
         const shardStart = instCount;

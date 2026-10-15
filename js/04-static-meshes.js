@@ -481,38 +481,41 @@
       // ========================================================================
       const missileMarker = gb.beginMesh();
       {
-        // Pointed seeker nose cone (-Z forward)
-        addCylinderZ(0, 0, -1.55, -0.85, 0.015, 0.13, 8, COL_ORANGE_ACCENT, MAT_ACCENT);
-        // Main tactical missile airframe body
-        addCylinderZ(0, 0, -0.85,  1.20, 0.13,  0.13, 8, [0.86, 0.90, 0.95], MAT_METAL);
-        // Rear booster nozzle ring
-        addCylinderZ(0, 0,  1.20,  1.42, 0.13,  0.09, 8, COL_TITANIUM_DARK, MAT_METAL);
-        // Glowing rocket motor core
-        addCylinderZ(0, 0,  1.38,  1.46, 0.085, 0.05, 8, [1.0, 0.65, 0.20], MAT_EMISSIVE);
+        const COL_MISSILE_BODY = [0.96, 0.34, 0.06];
+        const COL_MISSILE_HOT  = [1.00, 0.82, 0.34];
+        const COL_MISSILE_TIP  = [1.00, 0.97, 0.90];
 
-        // Horizontal cruciform tail fins & mid-body strakes
+        addCylinderZ(0, 0, -1.62, -1.05, 0.02, 0.075, 8, COL_MISSILE_TIP, MAT_EMISSIVE);
+        addCylinderZ(0, 0, -1.05, -0.80, 0.075, 0.135, 8, COL_MISSILE_HOT, MAT_EMISSIVE);
+        addCylinderZ(0, 0, -0.80, -0.52, 0.135, 0.135, 8, COL_MISSILE_BODY, MAT_ACCENT);
+        addCylinderZ(0, 0, -0.52, -0.34, 0.138, 0.138, 8, COL_MISSILE_HOT, MAT_EMISSIVE);
+        addCylinderZ(0, 0, -0.34,  0.26, 0.135, 0.135, 8, COL_MISSILE_BODY, MAT_ACCENT);
+        addCylinderZ(0, 0,  0.26,  0.44, 0.138, 0.138, 8, COL_MISSILE_HOT, MAT_EMISSIVE);
+        addCylinderZ(0, 0,  0.44,  1.20, 0.135, 0.135, 8, COL_MISSILE_BODY, MAT_ACCENT);
+        addCylinderZ(0, 0,  1.20,  1.44, 0.135, 0.095, 8, COL_TITANIUM_DARK, MAT_METAL);
+        addCylinderZ(0, 0,  1.40,  1.58, 0.105, 0.055, 8, COL_MISSILE_HOT, MAT_EMISSIVE);
+
         gb.addSymmetricAirfoil(
-          [0.10, 0.0, 0.55],
-          [0.10, 0.0, 1.32],
-          0.025,
-          [0.52, 0.0, 0.88],
-          [0.52, 0.0, 1.35],
-          0.012,
-          COL_GRAPHITE_DARK,
-          COL_SILVER_METAL,
-          COL_ORANGE_ACCENT,
+          [0.13, 0.0, 0.55],
+          [0.13, 0.0, 1.32],
+          0.028,
+          [0.62, 0.0, 0.88],
+          [0.62, 0.0, 1.35],
+          0.014,
+          COL_MISSILE_TIP,
+          COL_MISSILE_HOT,
+          COL_MISSILE_BODY,
           MAT_METAL,
-          MAT_GRAPHITE
+          MAT_ACCENT
         );
 
-        // Vertical cruciform tail fins
-        const vFinTopF = [0.0, 0.52, 0.88], vFinTopB = [0.0, 0.52, 1.35];
-        const vFinBotF = [0.0, -0.52, 0.88], vFinBotB = [0.0, -0.52, 1.35];
+        const vFinTopF = [0.0, 0.62, 0.88], vFinTopB = [0.0, 0.62, 1.35];
+        const vFinBotF = [0.0, -0.62, 0.88], vFinBotB = [0.0, -0.62, 1.35];
         const vRootF = [0.0, 0.0, 0.55], vRootB = [0.0, 0.0, 1.32];
-        gb.addQuad(vRootF, vFinTopF, vFinTopB, vRootB, COL_GRAPHITE_DARK, MAT_GRAPHITE);
-        gb.addQuad(vFinTopF, vRootF, vRootB, vFinTopB, COL_GRAPHITE_DARK, MAT_GRAPHITE);
-        gb.addQuad(vRootF, vFinBotF, vFinBotB, vRootB, COL_GRAPHITE_DARK, MAT_GRAPHITE);
-        gb.addQuad(vFinBotF, vRootF, vRootB, vFinBotB, COL_GRAPHITE_DARK, MAT_GRAPHITE);
+        gb.addQuad(vRootF, vFinTopF, vFinTopB, vRootB, COL_MISSILE_TIP, MAT_METAL);
+        gb.addQuad(vFinTopF, vRootF, vRootB, vFinTopB, COL_MISSILE_TIP, MAT_METAL);
+        gb.addQuad(vRootF, vFinBotF, vFinBotB, vRootB, COL_MISSILE_TIP, MAT_METAL);
+        gb.addQuad(vFinBotF, vRootF, vRootB, vFinBotB, COL_MISSILE_TIP, MAT_METAL);
       }
       const meshMissile = gb.endMesh(missileMarker);
 
@@ -831,6 +834,63 @@
       }
       const meshShieldRing = gb.endMesh(shieldRingMarker);
 
+      const blastSphereMarker = gb.beginMesh();
+      {
+        const segments = 12;
+        const rings = 7;
+        const grid = [];
+        for (let ring = 0; ring <= rings; ring++) {
+          const phi = (ring / rings) * Math.PI;
+          const ringPoints = [];
+          for (let segment = 0; segment <= segments; segment++) {
+            const theta = (segment / segments) * Math.PI * 2;
+            ringPoints.push([
+              Math.sin(phi) * Math.cos(theta),
+              Math.cos(phi),
+              Math.sin(phi) * Math.sin(theta)
+            ]);
+          }
+          grid.push(ringPoints);
+        }
+        for (let ring = 0; ring < rings; ring++) {
+          for (let segment = 0; segment < segments; segment++) {
+            const a = grid[ring][segment];
+            const b = grid[ring][segment + 1];
+            const c = grid[ring + 1][segment + 1];
+            const d = grid[ring + 1][segment];
+            if (ring === 0) {
+              gb.addTri(a, b, c, [1, 1, 1], MAT_EMISSIVE);
+            } else if (ring === rings - 1) {
+              gb.addTri(a, b, d, [1, 1, 1], MAT_EMISSIVE);
+            } else {
+              gb.addQuad(a, b, c, d, [1, 1, 1], MAT_EMISSIVE);
+            }
+          }
+        }
+      }
+      const meshBlastSphere = gb.endMesh(blastSphereMarker);
+
+      const blastRingMarker = gb.beginMesh();
+      {
+        const segments = 32;
+        const inner = 0.84;
+        for (let segment = 0; segment < segments; segment++) {
+          const angleA = (segment / segments) * Math.PI * 2;
+          const angleB = ((segment + 1) / segments) * Math.PI * 2;
+          const cosA = Math.cos(angleA), sinA = Math.sin(angleA);
+          const cosB = Math.cos(angleB), sinB = Math.sin(angleB);
+          gb.addQuad(
+            [cosA * inner, sinA * inner, 0],
+            [cosB * inner, sinB * inner, 0],
+            [cosB, sinB, 0],
+            [cosA, sinA, 0],
+            [1, 1, 1],
+            MAT_EMISSIVE
+          );
+        }
+      }
+      const meshBlastRing = gb.endMesh(blastRingMarker);
+
       return {
         vertexData: new Float32Array(gb.vertices),
         indexData: new Uint32Array(gb.indices),
@@ -847,7 +907,9 @@
           mothership: meshMothership,
           shieldDrone: meshShieldDrone,
           shieldPanel: meshShieldPanel,
-          shieldRing: meshShieldRing
+          shieldRing: meshShieldRing,
+          blastSphere: meshBlastSphere,
+          blastRing: meshBlastRing
         }
       };
     }

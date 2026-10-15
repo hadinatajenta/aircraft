@@ -684,6 +684,85 @@ function takeFreeProjectile(sim) {
   check('P3 every instance is claimed by exactly one batch', duplicated === 0 && claimed.size === info.totalInstances, `claimed=${claimed.size} total=${info.totalInstances} duplicated=${duplicated}`);
 
   check('P4 the shield batches hold one instance each', info.batches.shieldPanel.count === 1 && info.batches.shieldRing.count === 1, `panel=${info.batches.shieldPanel.count} ring=${info.batches.shieldRing.count}`);
+
+  const geometry = sandbox.buildAllStaticMeshes();
+  const meshNames = Object.keys(geometry.meshes);
+  const batchesWithoutMesh = Object.keys(info.batches).filter((name) => !meshNames.includes(name));
+  check('P5 every batch name resolves to a mesh', batchesWithoutMesh.length === 0, batchesWithoutMesh.join(', ') || `${Object.keys(info.batches).length} batches resolve to meshes`);
+
+  check('P6 the detonation meshes exist', meshNames.includes('blastSphere') && meshNames.includes('blastRing'), `${meshNames.length} meshes: ${meshNames.join(',')}`);
+}
+
+{
+  const sim = newSim();
+  const drone = sim.drones[0];
+  drone.active = true;
+  drone.enemyType = 0;
+  drone.hp = 1;
+  drone.maxHp = 1;
+  drone.z = -40;
+  drone.x = 0;
+  drone.y = 0;
+
+  const bolt = sim.projectiles.find((p) => !p.active);
+  bolt.active = true;
+  bolt.isEnemy = false;
+  bolt.isSwarm = false;
+  bolt.x = drone.x;
+  bolt.y = drone.y;
+  bolt.z = drone.z;
+  bolt.vx = 0;
+  bolt.vy = 0;
+  bolt.vz = 0;
+  bolt.life = 1.0;
+
+  check('Q1 no blast is active before a kill', sim.blasts.every((blast) => !blast.active));
+  sim.step(DT);
+  const firedBlast = sim.blasts.find((blast) => blast.active);
+  check('Q2 destroying a drone starts a detonation', firedBlast !== undefined, `active=${sim.blasts.filter((blast) => blast.active).length}`);
+  check('Q3 the detonation is anchored at the kill', firedBlast !== undefined && Math.abs(firedBlast.x - drone.x) < 2 && Math.abs(firedBlast.z - drone.z) < 2, firedBlast ? `blast=(${firedBlast.x.toFixed(1)},${firedBlast.z.toFixed(1)}) drone=(${drone.x},${drone.z})` : 'none');
+
+  const blastInfo = sim.prepareRenderData(16 / 9);
+  check('Q4 the detonation renders a fireball core', blastInfo.batches.blastSphere.count === 1, `count=${blastInfo.batches.blastSphere.count}`);
+  check('Q5 the detonation renders a shockwave ring', blastInfo.batches.blastRing.count === 1, `count=${blastInfo.batches.blastRing.count}`);
+
+  const startRadius = firedBlast ? firedBlast.radius : 0;
+  stepFor(sim, 0.2);
+  check('Q6 the detonation ages and expands', firedBlast.age > 0.1 && firedBlast.age < firedBlast.life, `age=${firedBlast.age.toFixed(2)} life=${firedBlast.life}`);
+  check('Q7 the detonation expires on its own', (() => { stepFor(sim, 0.6); return firedBlast.active === false; })(), `active=${firedBlast.active}`);
+  check('Q8 blast radius is carried from the spawn call', startRadius > 0, `radius=${startRadius}`);
+  check('Q9 the expired detonation stops rendering', sim.prepareRenderData(16 / 9).batches.blastSphere.count === 0);
+
+  const detonation = newSim();
+  detonation.spawnBlast(0, 0, -40, 10.0, 1.0, 0.66, 0.22);
+  stepFor(detonation, 0.4);
+  const detonationRender = detonation.prepareRenderData(16 / 9);
+  const geometry = sandbox.buildAllStaticMeshes();
+  const INSTANCE_STRIDE = 24;
+
+  const meshRadius = (mesh) => {
+    let maxRadius = 0;
+    for (let i = mesh.firstIndex; i < mesh.firstIndex + mesh.indexCount; i++) {
+      const vertex = geometry.indexData[i] * 12;
+      maxRadius = Math.max(maxRadius, Math.hypot(geometry.vertexData[vertex], geometry.vertexData[vertex + 1], geometry.vertexData[vertex + 2]));
+    }
+    return maxRadius;
+  };
+
+  const instanceScale = (batchFirst) => {
+    const offset = batchFirst * INSTANCE_STRIDE;
+    return Math.hypot(detonation.instanceBufferData[offset], detonation.instanceBufferData[offset + 1], detonation.instanceBufferData[offset + 2]);
+  };
+
+  const sphereRadius = meshRadius(geometry.meshes.blastSphere);
+  const ringRadius = meshRadius(geometry.meshes.blastRing);
+  const coreWorld = instanceScale(detonationRender.batches.blastSphere.first) * sphereRadius;
+  const ringWorld = instanceScale(detonationRender.batches.blastRing.first) * ringRadius;
+
+  check('R1 the blast meshes are authored at unit radius', Math.abs(sphereRadius - 1.0) < 0.01 && Math.abs(ringRadius - 1.0) < 0.01, `sphere=${sphereRadius.toFixed(3)} ring=${ringRadius.toFixed(3)}`);
+  check('R2 the fireball never dwarfs its own detonation radius', coreWorld <= 10.0 * 0.6, `coreWorld=${coreWorld.toFixed(2)} limit=${(10.0 * 0.6).toFixed(2)}`);
+  check('R3 the shockwave never dwarfs its own detonation radius', ringWorld <= 10.0 * 1.4, `ringWorld=${ringWorld.toFixed(2)} limit=${(10.0 * 1.4).toFixed(2)}`);
+  check('R4 the shockwave always expands beyond the fireball', ringWorld > coreWorld, `ring=${ringWorld.toFixed(2)} core=${coreWorld.toFixed(2)}`);
 }
 
 const failures = results.filter((r) => !r.passed);
