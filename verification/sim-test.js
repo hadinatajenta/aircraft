@@ -1,0 +1,434 @@
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const targetFile = process.env.SKYSTRIKE_FILE || path.resolve(__dirname, '..', 'index.html');
+const html = fs.readFileSync(targetFile, 'utf8');
+
+function readInlineScript(markup) {
+  const openIndex = markup.indexOf('<script>');
+  const closeIndex = markup.lastIndexOf('</script>');
+  if (openIndex === -1 || closeIndex === -1 || closeIndex < openIndex) return null;
+  const body = markup.slice(openIndex + '<script>'.length, closeIndex);
+  return body.trim() === '' ? null : body;
+}
+
+function readExternalScripts(markup, baseDirectory) {
+  const pattern = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>\s*<\/script>/gi;
+  return [...markup.matchAll(pattern)].map((match) =>
+    fs.readFileSync(path.resolve(baseDirectory, match[1]), 'utf8').replace(/^"use strict";\r?\n/, '')
+  );
+}
+
+const inlineScript = readInlineScript(html);
+const scriptParts = inlineScript === null
+  ? readExternalScripts(html, path.dirname(targetFile))
+  : [inlineScript];
+
+if (scriptParts.length === 0) {
+  process.stderr.write(`no game script found in ${targetFile}: expected an inline <script> block or <script src> tags\n`);
+  process.exit(2);
+}
+
+let code = scriptParts.join('\n');
+code += '\n;globalThis.__SIM = SkystrikeSimulation;\n';
+
+function makeClassList() {
+  const store = new Set();
+  return {
+    add: (name) => store.add(name),
+    remove: (name) => store.delete(name),
+    contains: (name) => store.has(name),
+    toggle: (name, force) => {
+      if (force === undefined) {
+        if (store.has(name)) store.delete(name); else store.add(name);
+      } else if (force) {
+        store.add(name);
+      } else {
+        store.delete(name);
+      }
+      return store.has(name);
+    }
+  };
+}
+
+function makeElement(id) {
+  const attributes = {};
+  return {
+    id,
+    textContent: '',
+    style: {},
+    classList: makeClassList(),
+    setAttribute: (key, value) => { attributes[key] = String(value); },
+    getAttribute: (key) => attributes[key],
+    addEventListener: () => {},
+    focus: () => { attributes.focused = 'true'; }
+  };
+}
+
+const elements = new Map();
+const documentStub = {
+  getElementById: (id) => {
+    if (!elements.has(id)) elements.set(id, makeElement(id));
+    return elements.get(id);
+  }
+};
+
+function makeRandom(seed) {
+  let state = seed >>> 0;
+  return function random() {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const seededMath = Object.create(Math);
+seededMath.random = makeRandom(20261015);
+
+const sandbox = {
+  Math: seededMath,
+  document: documentStub,
+  window: {
+    addEventListener: () => {},
+    matchMedia: () => ({ matches: false }),
+    innerWidth: 1280,
+    innerHeight: 720,
+    devicePixelRatio: 1
+  },
+  console,
+  setTimeout,
+  clearTimeout,
+  requestAnimationFrame: () => {},
+  performance: { now: () => 0 }
+};
+
+vm.createContext(sandbox);
+vm.runInContext(code, sandbox);
+
+const SkystrikeSimulation = sandbox.__SIM;
+const DT = 1 / 60;
+const results = [];
+
+function check(label, condition, detail) {
+  results.push({ label, passed: Boolean(condition), detail });
+}
+
+function newSim() {
+  return new SkystrikeSimulation();
+}
+
+function stepFor(sim, seconds) {
+  const steps = Math.round(seconds / DT);
+  for (let i = 0; i < steps; i++) sim.step(DT);
+}
+
+function spawnHeavy(sim) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const existing = sim.drones.find((d) => d.active && d.enemyType === 1);
+    if (existing) return existing;
+    sim.spawnDroneFromMothership(0);
+  }
+  return sim.drones.find((d) => d.active && d.enemyType === 1) || null;
+}
+
+function spawnRecon(sim) {
+  const existing = sim.drones.find((d) => d.active && d.enemyType === 0);
+  if (existing) return existing;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    sim.spawnDroneFromMothership(0);
+    const found = sim.drones.find((d) => d.active && d.enemyType === 0);
+    if (found) return found;
+  }
+  return null;
+}
+
+function takeFreeProjectile(sim) {
+  return sim.projectiles.find((p) => !p.active);
+}
+
+{
+  const sim = newSim();
+  check('A1 initial health is MAX_JET_HEALTH', sim.jet.health === 100 && sim.jet.maxHealth === 100, `health=${sim.jet.health}`);
+  check('A2 initial hp bar is full and announced', elements.get('hp-fill').style.transform === 'scaleX(1.0000)' && elements.get('hp-tracker').getAttribute('aria-valuenow') === '100');
+  check('A3 initial score and target tally are zero', sim.score === 0 && sim.targetsDestroyed === 0);
+  check('A4 initial state is not game over', sim.gameOver === false && !elements.get('gameover-overlay').classList.contains('visible'));
+  check('A5 no projectile starts flagged as enemy', sim.projectiles.every((p) => p.isEnemy === false));
+
+  sim.applyJetDamage(35, 0, 1.5, 0, 0.5);
+  check('A6 damage reduces health', sim.jet.health === 65, `health=${sim.jet.health}`);
+  sim.reset();
+  check('A7 reset restores health and hides game over', sim.jet.health === 100 && sim.gameOver === false && !elements.get('gameover-overlay').classList.contains('visible'));
+}
+
+{
+  const sim = newSim();
+  const fill = elements.get('hp-fill');
+
+  sim.jet.health = 60;
+  sim.updateHealthBar();
+  check('B1 60% shows the warning colour', fill.classList.contains('is-warning') && !fill.classList.contains('is-critical'), fill.style.transform);
+
+  sim.jet.health = 30;
+  sim.updateHealthBar();
+  check('B2 30% is still warning', fill.classList.contains('is-warning') && !fill.classList.contains('is-critical'));
+
+  sim.jet.health = 28;
+  sim.updateHealthBar();
+  check('B3 28% switches to critical', fill.classList.contains('is-critical') && !fill.classList.contains('is-warning'));
+
+  sim.jet.health = 0;
+  sim.updateHealthBar();
+  check('B4 0% is critical and announces zero', fill.classList.contains('is-critical') && elements.get('hp-tracker').getAttribute('aria-valuenow') === '0');
+
+  sim.jet.health = 100;
+  sim.updateHealthBar();
+  check('B5 full health clears both colour states', !fill.classList.contains('is-warning') && !fill.classList.contains('is-critical'));
+}
+
+{
+  const sim = newSim();
+  sim.applyJetDamage = () => {};
+
+  const heavy = spawnHeavy(sim);
+  check('C1 a heavy gunship can launch from the mothership', heavy !== null && heavy.enemyType === 1);
+  check('C2 heavy gunship is assigned a forward station', heavy.stationZ < 0 && heavy.stationZ > -160, `stationZ=${heavy.stationZ.toFixed(1)}`);
+
+  stepFor(sim, 12);
+  check('C3 heavy gunship advances to and holds its station', Math.abs(heavy.z - heavy.stationZ) < 0.001, `z=${heavy.z.toFixed(2)} stationZ=${heavy.stationZ.toFixed(2)}`);
+
+  const zAtStation = heavy.z;
+  stepFor(sim, 20);
+  check('C4 heavy gunship never drifts past its station', heavy.z === zAtStation, `z=${heavy.z.toFixed(2)}`);
+  check('C5 heavy gunship stays alive on station', heavy.active === true);
+
+  let fireCount = 0;
+  const originalFire = sim.fireHeavyGunship.bind(sim);
+  sim.fireHeavyGunship = (gunship) => {
+    fireCount++;
+    originalFire(gunship);
+  };
+  stepFor(sim, 25);
+  check('C6 heavy gunship keeps firing at the player', fireCount >= 5, `fires=${fireCount} in 25s`);
+
+  sim.projectiles.forEach((p) => { p.active = false; });
+  originalFire(heavy);
+  const salvo = sim.projectiles.filter((p) => p.active && p.isEnemy);
+  check('C7 a salvo is a twin-barrel pair', salvo.length === 2, `bolts=${salvo.length}`);
+  check('C8 enemy bolts travel toward the player (+Z)', salvo.every((p) => p.vz > 0));
+  check('C9 enemy bolts use the crimson tint and are not swarm bolts', salvo.every((p) => p.r === 1.0 && p.g === 0.22 && p.b === 0.34 && p.isSwarm === false));
+  check('C10 firing raises a muzzle flash on the gunship', heavy.muzzleFlash > 0);
+
+  const probe = salvo[0];
+  const distBefore = Math.hypot(probe.x - sim.jet.x, probe.y - sim.jet.y, probe.z - sim.jet.z);
+  stepFor(sim, 0.3);
+  const distAfter = Math.hypot(probe.x - sim.jet.x, probe.y - sim.jet.y, probe.z - sim.jet.z);
+  check('C11 enemy bolts close on the aircraft', distAfter < distBefore, `${distBefore.toFixed(1)} -> ${distAfter.toFixed(1)}`);
+
+  stepFor(sim, 60);
+  const heavyCount = sim.drones.filter((d) => d.active && d.enemyType === 1).length;
+  check('C12 heavy gunship spawn is capped', heavyCount <= 3, `heavy=${heavyCount}`);
+  check('C13 recon drones still share the airspace', sim.drones.some((d) => d.active && d.enemyType === 0) || sim.enemySpawnTimer > 0);
+}
+
+{
+  const sim = newSim();
+  const damageLog = [];
+  const realApplyDamage = sim.applyJetDamage.bind(sim);
+  sim.applyJetDamage = (amount, hitX, hitY, hitZ, impactScale) => {
+    damageLog.push(amount);
+    realApplyDamage(amount, hitX, hitY, hitZ, impactScale);
+  };
+
+  const enemyBolt = takeFreeProjectile(sim);
+  enemyBolt.active = true;
+  enemyBolt.isEnemy = true;
+  enemyBolt.isSwarm = false;
+  enemyBolt.x = sim.jet.x;
+  enemyBolt.y = sim.jet.y;
+  enemyBolt.z = sim.jet.z;
+  enemyBolt.vx = 0;
+  enemyBolt.vy = 0;
+  enemyBolt.vz = 0;
+  enemyBolt.life = 1.0;
+  const healthBeforeBolt = sim.jet.health;
+  sim.step(DT);
+  check('D1 an enemy bolt on the aircraft deals 4 damage', sim.jet.health === healthBeforeBolt - 4 && damageLog.at(-1) === 4, `health=${sim.jet.health} log=${damageLog.join(',')}`);
+  check('D2 the enemy bolt is consumed on impact', enemyBolt.active === false);
+  check('D3 the aircraft flashes on impact', sim.jet.hullFlash > 0);
+
+  const friendlyBolt = takeFreeProjectile(sim);
+  friendlyBolt.active = true;
+  friendlyBolt.isEnemy = false;
+  friendlyBolt.isSwarm = false;
+  friendlyBolt.x = sim.jet.x;
+  friendlyBolt.y = sim.jet.y;
+  friendlyBolt.z = sim.jet.z;
+  friendlyBolt.vx = 0;
+  friendlyBolt.vy = 0;
+  friendlyBolt.vz = 0;
+  friendlyBolt.life = 1.0;
+  const healthBeforeFriendly = sim.jet.health;
+  sim.step(DT);
+  check('D4 friendly bolts never damage the aircraft', sim.jet.health === healthBeforeFriendly, `health=${sim.jet.health}`);
+
+  const mothershipBolt = takeFreeProjectile(sim);
+  mothershipBolt.active = true;
+  mothershipBolt.isEnemy = true;
+  mothershipBolt.x = sim.mothership.x;
+  mothershipBolt.y = sim.mothership.y;
+  mothershipBolt.z = sim.mothership.z;
+  mothershipBolt.vx = 0;
+  mothershipBolt.vy = 0;
+  mothershipBolt.vz = 0;
+  mothershipBolt.life = 1.0;
+  const mothershipHp = sim.mothership.hp;
+  sim.step(DT);
+  check('D5 enemy bolts never damage the mothership', sim.mothership.hp === mothershipHp && mothershipBolt.active === true, `hp=${sim.mothership.hp}`);
+
+  const recon = spawnRecon(sim);
+  if (recon) {
+    recon.active = true;
+    recon.enemyType = 0;
+    recon.launchBlend = 0;
+    recon.z = sim.jet.z;
+    recon.baseX = sim.jet.x - Math.sin(recon.phase) * 3.4;
+    recon.baseY = sim.jet.y - Math.cos(recon.phase * 0.8) * 1.6;
+    const healthBeforeCrash = sim.jet.health;
+    sim.step(DT);
+    check('D6 a recon collision deals 10 damage', sim.jet.health === healthBeforeCrash - 10 && damageLog.at(-1) === 10, `health=${sim.jet.health} log=${damageLog.join(',')}`);
+    check('D7 the colliding recon drone is destroyed', recon.active === false);
+  } else {
+    check('D6 a recon collision deals 10 damage', false, 'no recon drone available');
+    check('D7 the colliding recon drone is destroyed', false, 'no recon drone available');
+  }
+
+  const hostile = spawnHeavy(sim);
+  if (hostile) {
+    hostile.active = true;
+    hostile.enemyType = 1;
+    hostile.launchBlend = 0;
+    hostile.stationZ = sim.jet.z;
+    hostile.z = sim.jet.z;
+    hostile.baseX = sim.jet.x - Math.sin(hostile.phase) * 5.2;
+    hostile.baseY = sim.jet.y - Math.sin(hostile.phase * 0.65) * 2.1;
+    const healthBeforeHeavy = sim.jet.health;
+    sim.step(DT);
+    check('D8 a heavy gunship collision deals 20 damage', sim.jet.health === healthBeforeHeavy - 20 && damageLog.at(-1) === 20, `health=${sim.jet.health} log=${damageLog.join(',')}`);
+  } else {
+    check('D8 a heavy gunship collision deals 20 damage', false, 'no heavy gunship available');
+  }
+}
+
+{
+  const sim = newSim();
+  const recon = spawnRecon(sim);
+  check('E1 recon drone is available for the regression check', recon !== null);
+
+  recon.active = true;
+  recon.enemyType = 0;
+  recon.hp = 1;
+  recon.maxHp = 1;
+  recon.z = -40;
+  recon.x = 0;
+  recon.y = 0;
+
+  const bolt = takeFreeProjectile(sim);
+  bolt.active = true;
+  bolt.isEnemy = false;
+  bolt.isSwarm = false;
+  bolt.x = recon.x;
+  bolt.y = recon.y;
+  bolt.z = recon.z;
+  bolt.vx = 0;
+  bolt.vy = 0;
+  bolt.vz = 0;
+  bolt.life = 1.0;
+
+  sim.step(DT);
+  check('E2 player bolts still destroy recon drones', recon.active === false);
+  check('E3 a destroyed recon drone scores 100', sim.score === 100, `score=${sim.score}`);
+  check('E4 the target tally advances', sim.targetsDestroyed === 1);
+}
+
+{
+  const sim = newSim();
+  const info = sim.prepareRenderData(16 / 9);
+  check('F1 render batches are produced', info.totalInstances > 0, `instances=${info.totalInstances}`);
+  check('F2 the aircraft is rendered while alive', info.batches.fighter.count === 1);
+  check('F3 the mothership batch is present', info.batches.mothership.count === 1);
+  check('F4 the hull tracker is visible and projected', !elements.get('hp-tracker').classList.contains('hidden') && /%\s*$/.test(elements.get('hp-tracker').style.left), `left=${elements.get('hp-tracker').style.left} top=${elements.get('hp-tracker').style.top}`);
+  check('F5 the hull tracker is scaled into screen space', /translate\(-50%, -100%\) scale\(/.test(elements.get('hp-tracker').style.transform), elements.get('hp-tracker').style.transform);
+
+  sim.applyJetDamage(500, 0, 1.5, 0, 1.0);
+  check('F6 zero health triggers game over', sim.gameOver === true && sim.jet.health === 0);
+  check('F7 game over overlay is revealed with stats', elements.get('gameover-overlay').classList.contains('visible') && elements.get('gameover-score').textContent === String(sim.score).padStart(5, '0'));
+  check('F8 game over moves focus to the restart control', elements.get('gameover-restart-btn').getAttribute('focused') === 'true');
+
+  const deadInfo = sim.prepareRenderData(16 / 9);
+  check('F9 the destroyed aircraft is not rendered', deadInfo.batches.fighter.count === 0);
+  check('F10 the hull tracker is hidden after destruction', elements.get('hp-tracker').classList.contains('hidden'));
+  check('F11 the battle keeps rendering behind the overlay', deadInfo.totalInstances > 0, `instances=${deadInfo.totalInstances}`);
+}
+
+{
+  const sim = newSim();
+
+  sim.keys.fire = true;
+  sim.touchInput.fire = true;
+  sim.applyJetDamage(500, 0, 1.5, 0, 1.0);
+  check('G1 input is cleared the moment the aircraft is destroyed', sim.keys.fire === false && sim.touchInput.fire === false);
+  check('G2 zero health triggers game over', sim.gameOver === true && sim.jet.health === 0);
+
+  const scoreAtDeath = sim.score;
+  const targetsAtDeath = sim.targetsDestroyed;
+  const xAtDeath = sim.jet.x;
+  const phaseAtDeath = sim.mothership.phase;
+
+  sim.keys.fire = true;
+  sim.keys.left = true;
+  sim.touchInput.fire = true;
+  let error = null;
+  try {
+    stepFor(sim, 10);
+  } catch (caught) {
+    error = caught;
+  }
+
+  check('G3 the failed mission keeps stepping without error', error === null, error && error.message);
+  check('G4 the aircraft no longer responds to input', sim.jet.x === xAtDeath, `x=${sim.jet.x}`);
+  check('G5 the player cannot fire after destruction', sim.projectiles.every((p) => !p.active || p.isEnemy));
+  check('G6 the score and tally are frozen after destruction', sim.score === scoreAtDeath && sim.targetsDestroyed === targetsAtDeath);
+  check('G7 the world keeps advancing while the mission is failed', sim.mothership.phase > phaseAtDeath, `phase ${phaseAtDeath.toFixed(2)} -> ${sim.mothership.phase.toFixed(2)}`);
+
+  sim.reset();
+  check('G8 reset clears the failure state', sim.gameOver === false && sim.jet.health === 100);
+  check('G9 reset clears any held input', sim.keys.fire === false && sim.keys.left === false && sim.touchInput.fire === false);
+  check('G10 reset hides the overlay and refills the bar', !elements.get('gameover-overlay').classList.contains('visible') && elements.get('hp-fill').style.transform === 'scaleX(1.0000)');
+
+  sim.keys.fire = true;
+  stepFor(sim, 1);
+  check('G11 a restarted mission can fire again', sim.projectiles.some((p) => p.active && !p.isEnemy));
+}
+
+{
+  const sim = newSim();
+  stepFor(sim, 15);
+  check('H1 the aircraft survives the opening 15 seconds of fire', sim.gameOver === false && sim.jet.health > 0, `health=${sim.jet.health}`);
+  check('H2 the opening pressure is real, not cosmetic', sim.jet.health < 100, `health=${sim.jet.health}`);
+
+  let elapsed = 15;
+  while (!sim.gameOver && elapsed < 180) {
+    sim.step(DT);
+    elapsed += DT;
+  }
+  check('H3 sustained enemy fire eventually destroys an idle aircraft', sim.gameOver === true, `survived=${elapsed.toFixed(1)}s`);
+  check('H4 an idle player gets a fighting window before dying', elapsed > 18, `survived=${elapsed.toFixed(1)}s`);
+}
+
+const failures = results.filter((r) => !r.passed);
+results.forEach((r) => console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}${r.detail ? `  [${r.detail}]` : ''}`));
+console.log(`\n${results.length - failures.length}/${results.length} checks passed`);
+process.exit(failures.length === 0 ? 0 : 1);
