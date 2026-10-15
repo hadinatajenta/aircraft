@@ -63,6 +63,19 @@
     const SWARM_ROLE_ATTACKER       = 'attacker';
     const SWARM_ROLE_SHIELDER       = 'shielder';
 
+    const AIRCRAFT_SKYSTRIKE    = 'skystrike';
+    const AIRCRAFT_VOLTARC      = 'voltarc';
+    const ARC_BOLT_SPEED        = 265.0;
+    const ARC_BOLT_DAMAGE       = 2;
+    const ARC_FIRE_COOLDOWN     = 0.115;
+    const EMP_COOLDOWN          = 14.0;
+    const EMP_STUN_DURATION     = 4.5;
+    const EMP_FALL_ACCEL        = 26.0;
+    const EMP_KILL_Y            = -16.0;
+    const EMP_SCORE             = 60;
+    const SHIELD_SKILL_DURATION = 8.0;
+    const SHIELD_SKILL_COOLDOWN = 12.0;
+
     class SkystrikeSimulation {
       constructor() {
         this.reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -88,6 +101,13 @@
         this.gameOverScoreEl   = document.getElementById('gameover-score');
         this.gameOverTargetsEl = document.getElementById('gameover-targets');
         this.gameOverRestartEl = document.getElementById('gameover-restart-btn');
+        this.hangarEl       = document.getElementById('hangar-overlay');
+        this.hangarCards    = Array.from(document.querySelectorAll('[data-aircraft]'));
+        this.skillLabelEl   = document.getElementById('skill-label');
+        this.controlHintEl  = document.getElementById('control-hint');
+        this.controlSubhintEl = document.getElementById('control-subhint');
+        this.swarmRoleBtnEl = document.getElementById('swarm-mode-btn');
+        this.touchSwarmModeEl = document.getElementById('touch-swarm-mode');
 
         // Input state
         this.keys = { left: false, right: false, up: false, down: false, fire: false, missile: false, swarm: false };
@@ -96,7 +116,8 @@
         // Pre-allocate object pools
         this.projectiles = Array.from({ length: MAX_PROJECTILES }, () => ({
           active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
-          pitch: 0, yaw: 0, life: 0, r: 1.0, g: 0.85, b: 0.45, isSwarm: false, isEnemy: false
+          pitch: 0, yaw: 0, life: 0, r: 1.0, g: 0.85, b: 0.45, isSwarm: false, isEnemy: false,
+          isArc: false, damage: 1
         }));
 
         this.missiles = Array.from({ length: MAX_MISSILES }, () => ({
@@ -108,7 +129,8 @@
           active: false, enemyType: 0, x: 0, y: 0, z: 0, baseX: 0, baseY: 0,
           spawnX: 0, spawnY: 0, launchBlend: 0, stationZ: 0,
           vx: 0, vy: 0, vz: 0, phase: 0, spin: 0, bankAngle: 0,
-          fireTimer: 0, muzzleFlash: 0, hp: 2, maxHp: 2, hitFlash: 0
+          fireTimer: 0, muzzleFlash: 0, hp: 2, maxHp: 2, hitFlash: 0,
+          stunned: false, stunTimer: 0
         }));
 
         this.swarmDrones = Array.from({ length: ALLIED_SWARM_COUNT }, (_, idx) => ({
@@ -120,7 +142,8 @@
           active: false, slotIdx: idx, mode: 'shield',
           x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
           offsetX: 0, offsetY: 0, phase: 0, age: 0, hp: SHIELD_DRONE_HP, maxHp: SHIELD_DRONE_HP,
-          hitFlash: 0, vx: 0, vy: 0, vz: 0, trailTimer: 0
+          hitFlash: 0, vx: 0, vy: 0, vz: 0, trailTimer: 0,
+          stunned: false, stunTimer: 0
         }));
 
         this.particles = Array.from({ length: MAX_PARTICLES }, () => ({
@@ -133,7 +156,7 @@
         }));
 
         this.blasts = Array.from({ length: MAX_BLASTS }, () => ({
-          active: false, x: 0, y: 0, z: 0, age: 0, life: BLAST_LIFE,
+          active: false, x: 0, y: 0, z: 0, age: 0, life: BLAST_LIFE, kind: 'fire',
           radius: 8, r: 1.0, g: 0.70, b: 0.28, spin: 0
         }));
 
@@ -169,6 +192,7 @@
       reset() {
         this.paused = false;
         this.gameOver = false;
+        this.started = true;
         this.clearInputState();
         this.time = 0;
         this.score = 0;
@@ -202,7 +226,14 @@
           swarmRole: SWARM_ROLE_ATTACKER,
           shieldHp: 0,
           maxShieldHp: PLAYER_SHIELD_CAPACITY,
-          shieldFlash: 0
+          shieldFlash: 0,
+          shieldTimer: 0,
+          shieldCooldown: 0,
+          shieldTriggerCooldown: 0,
+          empCooldown: 0,
+          empFlash: 0,
+          empPulseTimer: 0,
+          aircraftId: this.jet ? this.jet.aircraftId : AIRCRAFT_SKYSTRIKE
         };
 
         // Smooth camera state
@@ -234,6 +265,9 @@
         for (const d of this.drones) {
           d.muzzleFlash = 0;
           d.fireTimer = 0;
+          d.stunned = false;
+          d.stunTimer = 0;
+          d.vy = 0;
         }
 
         if (this.lockDiamondEl) this.lockDiamondEl.classList.remove('active');
@@ -284,6 +318,7 @@
         this.updateHealthBar();
         this.syncPauseUI();
         this.syncSwarmModeUI();
+        this.syncAircraftUI();
       }
 
       deployShieldRing() {
@@ -300,6 +335,8 @@
           sd.hitFlash = 0;
           sd.trailTimer = 0;
           sd.phase = (i / SHIELD_DRONE_COUNT) * Math.PI * 2;
+          sd.stunned = false;
+          sd.stunTimer = 0;
           sd.vx = 0;
           sd.vy = 0;
           sd.vz = 0;
@@ -368,6 +405,109 @@
         );
       }
 
+      isArcAircraft() {
+        return this.jet.aircraftId === AIRCRAFT_VOLTARC;
+      }
+
+      selectAircraft(aircraftId) {
+        if (aircraftId !== AIRCRAFT_SKYSTRIKE && aircraftId !== AIRCRAFT_VOLTARC) return;
+        this.jet.aircraftId = aircraftId;
+        this.syncAircraftUI();
+      }
+
+      openHangar() {
+        this.started = false;
+        this.paused = false;
+        if (this.hangarEl) this.hangarEl.classList.add('visible');
+        this.syncAircraftUI();
+      }
+
+      startMission() {
+        this.started = true;
+        if (this.hangarEl) this.hangarEl.classList.remove('visible');
+        this.syncAircraftUI();
+        this.updateHUD();
+      }
+
+      syncAircraftUI() {
+        const isArc = this.isArcAircraft();
+        for (const card of this.hangarCards) {
+          const selected = card.getAttribute('data-aircraft') === this.jet.aircraftId;
+          card.classList.toggle('selected', selected);
+          card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        }
+        if (this.swarmRoleBtnEl) this.swarmRoleBtnEl.classList.toggle('hidden', isArc);
+        if (this.touchSwarmModeEl) this.touchSwarmModeEl.classList.toggle('hidden', isArc);
+        if (this.skillLabelEl) this.skillLabelEl.textContent = isArc ? 'EMP [Q] · SHLD [E]' : 'SWARM [E]';
+        if (this.controlHintEl) {
+          this.controlHintEl.textContent = isArc
+            ? 'STEER · SPACE ARC FIRE · Q EMP PULSE · E ENERGY SHIELD'
+            : 'STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE';
+        }
+        if (this.controlSubhintEl) {
+          this.controlSubhintEl.textContent = isArc
+            ? 'WASD / ARROWS STEER · SPACE ARC CANNON · Q EMP (DROPS EVERY ENEMY AHEAD) · E ENERGY SHIELD · P PAUSE · R RESTART'
+            : 'WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART';
+        }
+      }
+
+      stunEnemyDrone(drone, duration) {
+        drone.stunned = true;
+        drone.stunTimer = Math.max(drone.stunTimer, duration);
+        drone.fireTimer = 0;
+        drone.muzzleFlash = 0;
+        if (drone.vy === undefined) drone.vy = 0;
+        if (drone.vx === undefined) drone.vx = 0;
+        if (drone.vz === undefined) drone.vz = 0;
+        this.spawnTrailParticle(drone.x, drone.y, drone.z, 0, 0, 0, 0.55, 0.95, 1.0, 0.55, 0.4);
+      }
+
+      triggerEmp() {
+        const j = this.jet;
+        j.empFlash = 1.0;
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.75, this.cam.shake + 0.38);
+
+        let disabled = 0;
+        for (const d of this.drones) {
+          if (!d.active || d.stunned) continue;
+          if (d.z > j.z - 2.0) continue;
+          this.stunEnemyDrone(d, EMP_STUN_DURATION);
+          disabled++;
+        }
+        for (const sd of this.shieldDrones) {
+          if (!sd.active || sd.stunned) continue;
+          if (sd.z > j.z - 2.0) continue;
+          this.stunEnemyDrone(sd, EMP_STUN_DURATION);
+          disabled++;
+        }
+
+        this.spawnBlast(j.x, j.y + 0.6, j.z - 26.0, 14.0, 0.55, 0.95, 1.0, 'emp');
+        this.score += EMP_SCORE + disabled * 25;
+        this.updateHUD();
+      }
+
+      raiseEnergyShield() {
+        const j = this.jet;
+        if (j.shieldTimer > 0 || j.shieldCooldown > 0) return;
+        j.shieldTimer = SHIELD_SKILL_DURATION;
+        j.shieldCooldown = SHIELD_SKILL_COOLDOWN;
+        j.shieldHp = j.maxShieldHp;
+        j.shieldFlash = 1.0;
+
+        for (let i = 0; i < 12; i++) {
+          this.spawnTrailParticle(
+            j.x + (Math.random() - 0.5) * 3.0,
+            j.y + (Math.random() - 0.5) * 3.0,
+            j.z + (Math.random() - 0.5) * 3.0,
+            (Math.random() - 0.5) * 14.0, (Math.random() - 0.5) * 14.0, 8.0,
+            0.35, 0.92, 1.0, 0.55, 0.32
+          );
+        }
+
+        this.updateHealthBar();
+        this.updateHUD();
+      }
+
       initSpeedLine(s, zPos) {
         const angle = Math.random() * Math.PI * 2;
         const radius = 6.5 + Math.random() * 24.0;
@@ -429,6 +569,8 @@
         d.phase = Math.random() * Math.PI * 2;
         d.spin = 0;
         d.bankAngle = 0;
+        d.stunned = false;
+        d.stunTimer = 0;
         d.stationZ = isHeavy ? (-88.0 - Math.random() * 46.0) : 0.0;
         d.fireTimer = isHeavy ? 1.2 + Math.random() * 1.0 : 0.0;
         d.muzzleFlash = 0;
@@ -542,6 +684,8 @@
             }
             p.isSwarm = true;
             p.isEnemy = false;
+            p.isArc = false;
+            p.damage = 1;
             break;
           }
         }
@@ -580,6 +724,8 @@
               p.active = true;
               p.isSwarm = false;
               p.isEnemy = true;
+              p.isArc = false;
+              p.damage = 1;
               p.x = muzzleX;
               p.y = muzzleY;
               p.z = muzzleZ;
@@ -600,7 +746,7 @@
         gunship.muzzleFlash = 0.11;
       }
 
-      spawnBlast(x, y, z, radius, r, g, b) {
+      spawnBlast(x, y, z, radius, r, g, b, kind) {
         for (let i = 0; i < MAX_BLASTS; i++) {
           const blast = this.blasts[i];
           if (blast.active) continue;
@@ -609,7 +755,8 @@
           blast.y = y;
           blast.z = z;
           blast.age = 0;
-          blast.life = BLAST_LIFE;
+          blast.life = kind === 'emp' ? 0.85 : BLAST_LIFE;
+          blast.kind = kind === 'emp' ? 'emp' : 'fire';
           blast.radius = radius;
           blast.r = r;
           blast.g = g;
@@ -657,6 +804,10 @@
 
       fireProjectiles() {
         const j = this.jet;
+        if (this.isArcAircraft()) {
+          this.fireArcBolts();
+          return;
+        }
         // Forward aim unit vector from aircraft yaw & pitch
         const cp = Math.cos(j.pitch), sp = Math.sin(j.pitch);
         const cy = Math.cos(j.yaw),   sy = Math.sin(j.yaw);
@@ -693,12 +844,57 @@
               p.b = 0.45;
               p.isSwarm = false;
               p.isEnemy = false;
+              p.isArc = false;
+              p.damage = 1;
               break;
             }
           }
         }
 
         j.muzzleFlashTimer = 0.055;
+      }
+
+      fireArcBolts() {
+        const j = this.jet;
+        const cp = Math.cos(j.pitch), sp = Math.sin(j.pitch);
+        const cy = Math.cos(j.yaw),   sy = Math.sin(j.yaw);
+        const dirX = -sy * cp;
+        const dirY = sp;
+        const dirZ = -cy * cp;
+
+        for (const side of [-1, 1]) {
+          transformAircraftPoint(
+            5.34 * side, 0.30, 0.30,
+            j.x, j.y, j.z,
+            j.yaw, j.pitch, j.roll,
+            this.tempVec3A
+          );
+
+          for (let i = 0; i < MAX_PROJECTILES; i++) {
+            const p = this.projectiles[i];
+            if (p.active) continue;
+            p.active = true;
+            p.x = this.tempVec3A[0];
+            p.y = this.tempVec3A[1];
+            p.z = this.tempVec3A[2];
+            p.vx = dirX * ARC_BOLT_SPEED + j.vx * 0.12;
+            p.vy = dirY * ARC_BOLT_SPEED + j.vy * 0.12;
+            p.vz = dirZ * ARC_BOLT_SPEED;
+            p.yaw = j.yaw;
+            p.pitch = j.pitch;
+            p.life = 1.15;
+            p.r = 0.42;
+            p.g = 0.86;
+            p.b = 1.0;
+            p.isSwarm = false;
+            p.isEnemy = false;
+            p.isArc = true;
+            p.damage = ARC_BOLT_DAMAGE;
+            break;
+          }
+        }
+
+        j.muzzleFlashTimer = 0.05;
       }
 
       // Scan active drones ahead of a given origin & forward vector to find best lock-on target
@@ -847,11 +1043,22 @@
       updateHUD() {
         if (this.scoreEl)   this.scoreEl.textContent   = String(this.score).padStart(5, '0');
         if (this.targetsEl) this.targetsEl.textContent = String(this.targetsDestroyed).padStart(3, '0');
-        if (this.swarmEl) {
-          if (this.jet && this.jet.swarmTimer > 0) {
-            this.swarmEl.textContent = `ACT ${this.jet.swarmTimer.toFixed(1)}S`;
-          } else if (this.jet && this.jet.swarmCooldown > 0) {
-            this.swarmEl.textContent = `CD ${this.jet.swarmCooldown.toFixed(1)}S`;
+        if (this.swarmEl && this.jet) {
+          const j = this.jet;
+          if (this.isArcAircraft()) {
+            if (j.empCooldown > 0) {
+              this.swarmEl.textContent = `EMP ${j.empCooldown.toFixed(1)}S`;
+            } else if (j.shieldTimer > 0) {
+              this.swarmEl.textContent = `SHLD ${j.shieldTimer.toFixed(1)}S`;
+            } else if (j.shieldCooldown > 0) {
+              this.swarmEl.textContent = `CD ${j.shieldCooldown.toFixed(1)}S`;
+            } else {
+              this.swarmEl.textContent = 'EMP READY';
+            }
+          } else if (j.swarmTimer > 0) {
+            this.swarmEl.textContent = `ACT ${j.swarmTimer.toFixed(1)}S`;
+          } else if (j.swarmCooldown > 0) {
+            this.swarmEl.textContent = `CD ${j.swarmCooldown.toFixed(1)}S`;
           } else {
             this.swarmEl.textContent = 'READY';
           }
@@ -913,7 +1120,7 @@
         if (this.gameOver) return;
 
         const j = this.jet;
-        if (j.shieldHp > 0 && j.swarmRole === SWARM_ROLE_SHIELDER) {
+        if (j.shieldHp > 0) {
           const absorbed = Math.min(j.shieldHp, amount);
           j.shieldHp -= absorbed;
           amount -= absorbed;
@@ -984,8 +1191,34 @@
       }
 
       // Fixed-timestep simulation update (dt = 1/60s)
+      stepWorldBackdrop(dt) {
+        this.time += dt;
+        const worldSpeed = 62.0;
+        this.terrainScrollZ = (this.terrainScrollZ + worldSpeed * dt) % TERRAIN_DEPTH;
+
+        for (let i = 0; i < MAX_SPEEDLINES; i++) {
+          const s = this.speedLines[i];
+          s.z += worldSpeed * 2.1 * dt;
+          if (s.z > 16.0) this.initSpeedLine(s, -135.0 - Math.random() * 30.0);
+        }
+
+        const hangarLerp = 1.0 - Math.exp(-4.5 * dt);
+        this.cam.x += (Math.sin(this.time * 0.24) * 10.0 - this.cam.x) * hangarLerp;
+        this.cam.y += (3.3 + Math.sin(this.time * 0.18) * 1.2 - this.cam.y) * hangarLerp;
+        this.cam.z += (13.4 - this.cam.z) * hangarLerp;
+        this.cam.lookX += (Math.sin(this.time * 0.24) * 11.0 - this.cam.lookX) * hangarLerp;
+        this.cam.lookY += (1.7 - this.cam.lookY) * hangarLerp;
+        this.cam.lookZ += (-34.0 - this.cam.lookZ) * hangarLerp;
+        this.cam.roll += (Math.sin(this.time * 0.16) * 0.06 - this.cam.roll) * hangarLerp;
+      }
+
       step(dt) {
         if (this.paused) return;
+
+        if (!this.started) {
+          this.stepWorldBackdrop(dt);
+          return;
+        }
 
         this.time += dt;
         const j = this.jet;
@@ -1041,6 +1274,7 @@
 
         if (j.hullFlash > 0) j.hullFlash = Math.max(0, j.hullFlash - dt * 3.5);
         if (j.shieldFlash > 0) j.shieldFlash = Math.max(0, j.shieldFlash - dt * 4.0);
+        if (j.empFlash > 0) j.empFlash = Math.max(0, j.empFlash - dt * 2.2);
 
         // 3. Smooth third-person follow camera behind & slightly above aircraft
         const camFollowLerp = 1.0 - Math.exp(-7.5 * dt);
@@ -1075,32 +1309,57 @@
 
           j.lockedDroneIdx = this.findBestTarget(j.x, j.y, j.z, fwdX, fwdY, fwdZ);
 
+          const isArc = this.isArcAircraft();
           const wantsFire = this.keys.fire || this.touchInput.fire;
           if (j.fireCooldown > 0) j.fireCooldown -= dt;
           if (j.missileCooldown > 0) j.missileCooldown -= dt;
           if (j.swarmTriggerCooldown > 0) j.swarmTriggerCooldown -= dt;
+          if (j.shieldCooldown > 0) j.shieldCooldown = Math.max(0, j.shieldCooldown - dt);
+          if (j.empCooldown > 0) {
+            j.empCooldown = Math.max(0, j.empCooldown - dt);
+            this.updateHUD();
+          }
           if (j.swarmCooldown > 0) {
             j.swarmCooldown = Math.max(0, j.swarmCooldown - dt);
             this.updateHUD();
+          }
+          if (j.shieldTimer > 0) {
+            j.shieldTimer = Math.max(0, j.shieldTimer - dt);
+            if (j.shieldTimer <= 0) {
+              j.shieldHp = 0;
+              this.updateHealthBar();
+              this.updateHUD();
+            }
           }
           if (j.muzzleFlashTimer > 0) j.muzzleFlashTimer = Math.max(0, j.muzzleFlashTimer - dt);
 
           if (wantsFire && j.fireCooldown <= 0) {
             this.fireProjectiles();
-            j.fireCooldown = 0.095; // ~10.5 salvos per second
+            j.fireCooldown = isArc ? ARC_FIRE_COOLDOWN : 0.095;
           }
           this.pipperEl?.classList.toggle('firing', wantsFire);
 
           const wantsMissile = this.keys.missile || this.touchInput.missile;
-          if (wantsMissile && j.missileCooldown <= 0) {
+          if (isArc) {
+            if (wantsMissile && j.empCooldown <= 0) {
+              this.triggerEmp();
+              j.empCooldown = EMP_COOLDOWN;
+            }
+          } else if (wantsMissile && j.missileCooldown <= 0) {
             this.launchHomingMissile();
             j.missileCooldown = 0.45; // Tactical salvo launch cooldown
           }
 
           const wantsSwarm = this.keys.swarm || this.touchInput.swarm;
-          if (wantsSwarm && j.swarmTriggerCooldown <= 0 && j.swarmTimer <= 0 && j.swarmCooldown <= 0) {
+          if (isArc) {
+            if (wantsSwarm && j.shieldTriggerCooldown <= 0) {
+              this.raiseEnergyShield();
+              j.shieldTriggerCooldown = 0.4;
+            }
+          } else if (wantsSwarm && j.swarmTriggerCooldown <= 0 && j.swarmTimer <= 0 && j.swarmCooldown <= 0) {
             this.deployAlliedSwarm();
           }
+          if (j.shieldTriggerCooldown > 0) j.shieldTriggerCooldown = Math.max(0, j.shieldTriggerCooldown - dt);
         }
 
         // 4B. Update Allied Swarm Drones (Attacker Barrage or Shielder Bubble Formation)
@@ -1219,7 +1478,7 @@
             const hitRadiusSq = d.enemyType === 1 ? 16.5 : 9.6;
             if (dx * dx + dy * dy + dz * dz < hitRadiusSq) {
               p.active = false;
-              d.hp -= 1;
+              d.hp -= p.damage;
               d.hitFlash = 1.0;
 
               if (d.hp <= 0) {
@@ -1259,7 +1518,7 @@
             const sdz = p.z - sd.z;
             if (sdx * sdx + sdy * sdy + sdz * sdz < 30.0) {
               p.active = false;
-              this.damageShieldDrone(sd, 1, p.x, p.y, p.z);
+              this.damageShieldDrone(sd, p.damage, p.x, p.y, p.z);
               break;
             }
           }
@@ -1275,7 +1534,7 @@
               if (this.isMothershipShielded()) {
                 this.blockMothershipHit(p.x, p.y, p.z);
               } else {
-                this.damageMothership(MOTHERSHIP_BULLET_DAMAGE, p.x, p.y, p.z);
+                this.damageMothership(MOTHERSHIP_BULLET_DAMAGE * p.damage, p.x, p.y, p.z);
               }
             }
           }
@@ -1485,6 +1744,24 @@
 
           if (sd.hitFlash > 0) sd.hitFlash = Math.max(0, sd.hitFlash - dt * 5.5);
 
+          if (sd.stunned) {
+            sd.stunTimer -= dt;
+            sd.vy -= EMP_FALL_ACCEL * dt;
+            sd.y += sd.vy * dt;
+            sd.x += sd.vx * dt;
+            sd.z += sd.vz * 0.25 * dt;
+            sd.roll += dt * 9.0;
+            if (sd.stunTimer <= 0 || sd.y < EMP_KILL_Y) {
+              sd.active = false;
+              this.spawnBlast(sd.x, sd.y, sd.z, 9.0, 0.40, 0.86, 1.0);
+              this.spawnExplosion(sd.x, sd.y, sd.z, 22, 1.1);
+              this.score += EMP_SCORE;
+              this.targetsDestroyed += 1;
+              this.updateHUD();
+            }
+            continue;
+          }
+
           if (sd.mode === 'shield') {
             sd.age += dt;
             sd.phase += dt * 0.9;
@@ -1547,6 +1824,27 @@
         for (let i = 0; i < MAX_DRONES; i++) {
           const d = this.drones[i];
           if (!d.active) continue;
+
+          if (d.stunned) {
+            d.stunTimer -= dt;
+            d.vy -= EMP_FALL_ACCEL * dt;
+            d.y += d.vy * dt;
+            d.x += d.vx * dt;
+            d.z += d.vz * 0.25 * dt;
+            d.spin += dt * 8.0;
+            d.bankAngle += dt * 11.0;
+            if (d.hitFlash > 0) d.hitFlash = Math.max(0, d.hitFlash - dt * 5.5);
+            if (d.stunTimer <= 0 || d.y < EMP_KILL_Y) {
+              d.active = false;
+              this.spawnBlast(d.x, d.y, d.z, 9.0, 0.40, 0.86, 1.0);
+              this.spawnExplosion(d.x, d.y, d.z, 22, 1.1);
+              this.score += EMP_SCORE;
+              this.targetsDestroyed += 1;
+              this.updateHUD();
+            }
+            activeDroneCount++;
+            continue;
+          }
 
           if (d.launchBlend > 0) {
             d.launchBlend = Math.max(0, d.launchBlend - dt * 1.35);
@@ -1875,8 +2173,9 @@
 
         // 2. PLAYER FIGHTER AIRCRAFT (Rigid hard-surface airframe with subtle high-speed flight buffet)
         const microBuffetY = this.reducedMotion ? 0 : Math.sin(this.time * 18.0) * 0.025;
+        const playerIsArc = this.isArcAircraft();
         const fighterStart = instCount;
-        if (!this.gameOver) {
+        if (!this.gameOver && !playerIsArc) {
           pushInstance(
             j.x, j.y + microBuffetY, j.z,
             j.yaw, j.pitch, j.roll,
@@ -1886,6 +2185,18 @@
           );
         }
         batches.fighter = { first: fighterStart, count: instCount - fighterStart };
+
+        const voltFighterStart = instCount;
+        if (!this.gameOver && playerIsArc) {
+          pushInstance(
+            j.x, j.y + microBuffetY, j.z,
+            j.yaw, j.pitch, j.roll,
+            1, 1, 1,
+            1, 1, 1, 1,
+            0, 0.35, 1.0, j.hullFlash
+          );
+        }
+        batches.voltFighter = { first: voltFighterStart, count: instCount - voltFighterStart };
 
         // 2B. ENEMY AERIAL MOTHERSHIP CARRIER (Flagship in the distance)
         const mothershipStart = instCount;
@@ -1911,8 +2222,8 @@
             d.x, d.y, d.z,
             0, 0.08, d.bankAngle,
             1.15, 1.15, 1.15,
-            1, 1, 1, 1,
-            0, 0.6, 0.5, d.hitFlash
+            d.stunned ? 0.45 : 1, d.stunned ? 0.75 : 1, 1, 1,
+            0, d.stunned ? 1.4 : 0.6, 0.5, d.hitFlash
           );
         }
         batches.drone = { first: droneStart, count: instCount - droneStart };
@@ -1926,8 +2237,8 @@
             d.x, d.y, d.z,
             0, 0.05, d.bankAngle,
             1.35, 1.35, 1.35,
-            1, 1, 1, 1,
-            0, 0.75, 0.5, d.hitFlash
+            d.stunned ? 0.45 : 1, d.stunned ? 0.75 : 1, 1, 1,
+            0, d.stunned ? 1.4 : 0.75, 0.5, d.hitFlash
           );
         }
         batches.heavyDrone = { first: heavyDroneStart, count: instCount - heavyDroneStart };
@@ -1942,8 +2253,10 @@
             sd.x, sd.y, sd.z,
             sd.yaw, sd.pitch, sd.roll,
             1.6, 1.6, 1.6,
-            isKamikaze ? 1.0 : 0.85, isKamikaze ? 0.35 : 0.95, isKamikaze ? 0.28 : 1.0, 1,
-            0, isKamikaze ? 1.0 : 0.7, 0.5, sd.hitFlash
+            sd.stunned ? 0.45 : (isKamikaze ? 1.0 : 0.85),
+            sd.stunned ? 0.75 : (isKamikaze ? 0.35 : 0.95),
+            sd.stunned ? 1.0 : (isKamikaze ? 0.28 : 1.0), 1,
+            0, sd.stunned ? 1.4 : (isKamikaze ? 1.0 : 0.7), 0.5, sd.hitFlash
           );
         }
         batches.shieldDrone = { first: shieldDroneStart, count: instCount - shieldDroneStart };
@@ -1982,7 +2295,7 @@
         const projStart = instCount;
         for (let i = 0; i < MAX_PROJECTILES; i++) {
           const p = this.projectiles[i];
-          if (!p.active) continue;
+          if (!p.active || p.isArc) continue;
           const sc = p.isSwarm ? 0.88 : 1.0;
           pushInstance(
             p.x, p.y, p.z,
@@ -1993,6 +2306,20 @@
           );
         }
         batches.projectile = { first: projStart, count: instCount - projStart };
+
+        const boltStart = instCount;
+        for (let i = 0; i < MAX_PROJECTILES; i++) {
+          const p = this.projectiles[i];
+          if (!p.active || !p.isArc) continue;
+          pushInstance(
+            p.x, p.y, p.z,
+            p.yaw, p.pitch, this.time * 46.0 + i,
+            0.85, 0.85, 0.85,
+            p.r, p.g, p.b, 1.0,
+            4.0, 2.2, 0, 0
+          );
+        }
+        batches.lightningBolt = { first: boltStart, count: instCount - boltStart };
 
         // 6. AFTERBURNER PLUMES & MUZZLE FLASHES (Additive / Emissive Cones)
         const plumeStart = instCount;
@@ -2010,8 +2337,8 @@
               this.tempVec3A[0], this.tempVec3A[1], this.tempVec3A[2],
               j.yaw, j.pitch, j.roll,
               0.95, 0.95, 1.35 * pulse,
-              1.0, 0.55, 0.18, 0.92,
-              4.0, 1.6, 0, 0
+              playerIsArc ? 0.45 : 1.0, playerIsArc ? 0.85 : 0.55, playerIsArc ? 1.0 : 0.18, 0.92,
+              4.0, playerIsArc ? 1.1 : 1.6, 0, 0
             );
 
             // Muzzle flashes when firing
@@ -2171,7 +2498,7 @@
 
         // Player shield halo: an open ring so the aircraft and the forward view stay unobstructed
         const shieldRingStart = instCount;
-        if (!this.gameOver && j.swarmRole === SWARM_ROLE_SHIELDER && j.shieldHp > 0) {
+        if (!this.gameOver && j.shieldHp > 0) {
           const playerShieldRatio = Math.max(0, Math.min(1, j.shieldHp / j.maxShieldHp));
           pushInstance(
             j.x, j.y + microBuffetY, j.z,
@@ -2187,7 +2514,7 @@
         const blastFireStart = instCount;
         for (let i = 0; i < MAX_BLASTS; i++) {
           const blast = this.blasts[i];
-          if (!blast.active) continue;
+          if (!blast.active || blast.kind === 'emp') continue;
           const progress = Math.min(1, blast.age / blast.life);
           const eased = 1 - (1 - progress) * (1 - progress);
           const core = blast.radius * (0.14 + eased * 0.28);
@@ -2208,7 +2535,9 @@
           if (!blast.active) continue;
           const progress = Math.min(1, blast.age / blast.life);
           const eased = 1 - (1 - progress) * (1 - progress);
-          const wave = blast.radius * (0.22 + eased * 0.80);
+          const wave = blast.kind === 'emp'
+            ? blast.radius * (0.30 + eased * 1.60)
+            : blast.radius * (0.22 + eased * 0.80);
           const waveFade = (1 - progress) * 0.90;
           pushInstance(
             blast.x, blast.y, blast.z,

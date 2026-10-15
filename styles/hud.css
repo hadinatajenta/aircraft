@@ -742,3 +742,120 @@
       border-radius: 6px;
       word-break: break-word;
     }
+
+    /* Hangar Aircraft Selection */
+    #hangar-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at center, rgba(10, 18, 34, 0.70) 0%, rgba(3, 6, 12, 0.92) 100%);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    #hangar-overlay.visible {
+      display: flex;
+    }
+
+    .hangar-panel {
+      max-width: 780px;
+      width: 100%;
+      max-height: 100%;
+      overflow-y: auto;
+      background: rgba(12, 21, 38, 0.94);
+      border: 1px solid rgba(255, 107, 43, 0.45);
+      border-radius: 12px;
+      padding: 26px 28px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+    }
+
+    .hangar-panel h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
+    }
+
+    .hangar-panel p {
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(215, 228, 250, 0.78);
+      max-width: 64ch;
+      margin-bottom: 18px;
+    }
+
+    .hangar-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .hangar-card {
+      appearance: none;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 16px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: var(--hud-text);
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+
+    .hangar-card:hover {
+      background: rgba(255, 255, 255, 0.07);
+      border-color: rgba(255, 255, 255, 0.30);
+    }
+
+    .hangar-card:active {
+      transform: scale(0.985);
+    }
+
+    .hangar-card.selected {
+      border-color: rgba(255, 107, 43, 0.85);
+      background: rgba(255, 107, 43, 0.12);
+    }
+
+    .hangar-card:focus-visible {
+      outline: 2px solid var(--accent-cyan);
+      outline-offset: 2px;
+    }
+
+    .hangar-card-name {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+    }
+
+    .hangar-card-role {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+    }
+
+    .hangar-card-desc {
+      font-size: 12px;
+      line-height: 1.55;
+      color: rgba(215, 228, 250, 0.72);
+    }
+
+    .hud-btn.hidden {
+      display: none;
+    }
+
+    .touch-swarm-mode-btn.hidden {
+      display: none;
+    }

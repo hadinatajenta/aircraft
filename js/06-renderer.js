@@ -335,6 +335,11 @@
           return;
         }
 
+        if (!sim.started) {
+          if (isDown && !e.repeat && code === 'Enter') sim.startMission();
+          return;
+        }
+
         if (code === 'KeyA' || code === 'ArrowLeft')  { sim.keys.left    = isDown; e.preventDefault(); }
         if (code === 'KeyD' || code === 'ArrowRight') { sim.keys.right   = isDown; e.preventDefault(); }
         if (code === 'KeyW' || code === 'ArrowUp')    { sim.keys.up      = isDown; e.preventDefault(); }
@@ -369,6 +374,12 @@
       document.getElementById('restart-btn').addEventListener('click', restartMission);
       document.getElementById('gameover-restart-btn').addEventListener('click', restartMission);
       document.getElementById('swarm-mode-btn').addEventListener('click', () => sim.toggleSwarmRole());
+
+      for (const card of sim.hangarCards) {
+        card.addEventListener('click', () => sim.selectAircraft(card.getAttribute('data-aircraft')));
+      }
+      document.getElementById('launch-btn').addEventListener('click', () => sim.startMission());
+      sim.openHangar();
 
       // Mobile Virtual Stick & Fire Multitouch Handlers
       const stickZone  = document.getElementById('touch-stick');
@@ -559,6 +570,9 @@
         if (b.fighter.count > 0) {
           renderPass.drawIndexed(meshes.fighter.indexCount, b.fighter.count, meshes.fighter.firstIndex, 0, b.fighter.first);
         }
+        if (b.voltFighter.count > 0) {
+          renderPass.drawIndexed(meshes.voltFighter.indexCount, b.voltFighter.count, meshes.voltFighter.firstIndex, 0, b.voltFighter.first);
+        }
         if (b.drone.count > 0) {
           renderPass.drawIndexed(meshes.drone.indexCount, b.drone.count, meshes.drone.firstIndex, 0, b.drone.first);
         }
@@ -579,6 +593,9 @@
         renderPass.setPipeline(vfxPipeline);
         if (b.projectile.count > 0) {
           renderPass.drawIndexed(meshes.projectile.indexCount, b.projectile.count, meshes.projectile.firstIndex, 0, b.projectile.first);
+        }
+        if (b.lightningBolt.count > 0) {
+          renderPass.drawIndexed(meshes.lightningBolt.indexCount, b.lightningBolt.count, meshes.lightningBolt.firstIndex, 0, b.lightningBolt.first);
         }
         if (b.plume.count > 0) {
           renderPass.drawIndexed(meshes.plume.indexCount, b.plume.count, meshes.plume.firstIndex, 0, b.plume.first);

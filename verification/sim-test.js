@@ -71,7 +71,8 @@ const documentStub = {
   getElementById: (id) => {
     if (!elements.has(id)) elements.set(id, makeElement(id));
     return elements.get(id);
-  }
+  },
+  querySelectorAll: () => []
 };
 
 function makeRandom(seed) {

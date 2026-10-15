@@ -891,6 +891,95 @@
       }
       const meshBlastRing = gb.endMesh(blastRingMarker);
 
+      const voltFighterMarker = gb.beginMesh();
+      {
+        const COL_VOLT_HULL   = [0.17, 0.20, 0.31];
+        const COL_VOLT_PLATE  = [0.32, 0.39, 0.58];
+        const COL_VOLT_ACCENT = [0.36, 0.64, 1.00];
+        const COL_VOLT_ARC    = [0.72, 0.95, 1.00];
+
+        const v0 = makeFuselageRing(-6.35, 0.02, -0.10, -0.08, -0.12, 0.50);
+        const v1 = makeFuselageRing(-5.10, 0.30, -0.06,  0.10, -0.20, 0.50);
+        const v2 = makeFuselageRing(-3.60, 0.66, -0.02,  0.28, -0.34, 0.52);
+        const v3 = makeFuselageRing(-1.90, 1.14,  0.02,  0.44, -0.44, 0.56);
+        const v4 = makeFuselageRing(-0.10, 1.44,  0.04,  0.46, -0.46, 0.62);
+        const v5 = makeFuselageRing( 1.90, 1.34,  0.04,  0.40, -0.42, 0.68);
+        const v6 = makeFuselageRing( 3.60, 1.10,  0.03,  0.30, -0.32, 0.72);
+
+        gb.addLoftSection(v0, v1, COL_VOLT_ARC, COL_VOLT_ARC, COL_VOLT_ARC, MAT_EMISSIVE);
+        gb.addLoftSection(v1, v2, COL_VOLT_HULL, COL_VOLT_PLATE, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(v2, v3, COL_VOLT_HULL, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(v3, v4, COL_VOLT_PLATE, COL_VOLT_HULL, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(v4, v5, COL_VOLT_HULL, COL_VOLT_HULL, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(v5, v6, COL_VOLT_PLATE, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_METAL);
+
+        const k0 = makeFuselageRing(-3.85, 0.20, 0.22, 0.26, 0.20, 0.70);
+        const k1 = makeFuselageRing(-2.95, 0.46, 0.32, 0.70, 0.24, 0.72);
+        const k2 = makeFuselageRing(-1.85, 0.50, 0.36, 0.78, 0.28, 0.72);
+        const k3 = makeFuselageRing(-0.85, 0.36, 0.38, 0.58, 0.32, 0.68);
+        gb.addLoftSection(k0, k1, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+        gb.addLoftSection(k1, k2, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+        gb.addLoftSection(k2, k3, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+
+        gb.addSymmetricAirfoil(
+          [1.15, 0.04, -1.30],
+          [1.15, 0.02,  2.30],
+          0.13,
+          [5.30, 0.30,  0.20],
+          [5.30, 0.30,  1.90],
+          0.05,
+          COL_VOLT_HULL,
+          COL_VOLT_PLATE,
+          COL_VOLT_ACCENT,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        gb.addSymmetricAirfoil(
+          [0.70, 0.20, 2.60],
+          [0.70, 0.16, 4.10],
+          0.06,
+          [1.50, 1.55, 3.30],
+          [1.46, 1.52, 4.40],
+          0.025,
+          COL_VOLT_PLATE,
+          COL_VOLT_HULL,
+          COL_VOLT_ARC,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        for (const sign of [-1, 1]) {
+          addCylinderZ(5.34 * sign, 0.30, 0.10, 1.10, 0.10, 0.05, 6, COL_VOLT_ARC, MAT_EMISSIVE);
+          addCylinderZ(0.56 * sign, -0.02, 3.55, 4.45, 0.34, 0.26, 10, COL_VOLT_PLATE, MAT_METAL);
+          addCylinderZ(0.56 * sign, -0.02, 4.40, 4.66, 0.22, 0.15, 10, COL_VOLT_ARC, MAT_EMISSIVE);
+          addCylinderZ(1.62 * sign, -0.20, -2.30, -1.35, 0.05, 0.13, 6, COL_VOLT_ACCENT, MAT_ACCENT);
+        }
+      }
+      const meshVoltFighter = gb.endMesh(voltFighterMarker);
+
+      const boltMarker = gb.beginMesh();
+      {
+        const COL_BOLT_CORE = [0.88, 0.98, 1.00];
+        const COL_BOLT_EDGE = [0.30, 0.58, 1.00];
+        const jitterX = [0.07, -0.10, 0.12, -0.08, 0.05, 0.00];
+        const jitterY = [-0.05, 0.08, 0.04, -0.09, 0.06, 0.00];
+        let previousZ = -2.0;
+        for (let segment = 0; segment < 6; segment++) {
+          const nextZ = -2.0 + ((segment + 1) / 6) * 4.0;
+          const radius = 0.055 + (1 - segment / 6) * 0.045;
+          addCylinderZ(
+            jitterX[segment], jitterY[segment],
+            previousZ, nextZ,
+            radius * 0.75, radius, 5,
+            segment % 2 === 0 ? COL_BOLT_CORE : COL_BOLT_EDGE,
+            MAT_EMISSIVE
+          );
+          previousZ = nextZ;
+        }
+      }
+      const meshLightningBolt = gb.endMesh(boltMarker);
+
       return {
         vertexData: new Float32Array(gb.vertices),
         indexData: new Uint32Array(gb.indices),
@@ -909,7 +998,9 @@
           shieldPanel: meshShieldPanel,
           shieldRing: meshShieldRing,
           blastSphere: meshBlastSphere,
-          blastRing: meshBlastRing
+          blastRing: meshBlastRing,
+          voltFighter: meshVoltFighter,
+          lightningBolt: meshLightningBolt
         }
       };
     }

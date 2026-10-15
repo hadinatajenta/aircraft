@@ -9,6 +9,8 @@ const PROBE = `(() => {
   const styled = (id) => { const el = document.getElementById(id); return el ? (el.getAttribute('style') || '') : null; };
   return JSON.stringify({
     badge: cls('webgpu-badge'),
+    hangar: cls('hangar-overlay'),
+    hangarTitle: text('hangar-title'),
     errorVisible: cls('error-overlay'),
     errorDetail: text('error-detail'),
     hpTracked: styled('hp-tracker'),

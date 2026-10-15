@@ -7,6 +7,28 @@
   <link rel="stylesheet" href="styles/hud.css" />
 </head>
 <body>
+  <!-- Hangar Aircraft Selection -->
+  <div id="hangar-overlay" role="dialog" aria-modal="true" aria-labelledby="hangar-title">
+    <div class="hangar-panel">
+      <span class="error-tag">AIRCRAFT SELECT</span>
+      <h1 id="hangar-title">Choose your airframe</h1>
+      <p>Two airframes are available. Cannon, special skill on Q, and utility skill on E differ between them.</p>
+      <div class="hangar-grid">
+        <button type="button" class="hangar-card selected" data-aircraft="skystrike" aria-pressed="true">
+          <span class="hangar-card-name">F/A-31 SKYSTRIKE</span>
+          <span class="hangar-card-role">Ballistic</span>
+          <span class="hangar-card-desc">Twin cannon tracers. Homing missiles on Q. Drone swarm on E, switchable between attacker and shielder with F.</span>
+        </button>
+        <button type="button" class="hangar-card" data-aircraft="voltarc" aria-pressed="false">
+          <span class="hangar-card-name">VX-9 VOLTARC</span>
+          <span class="hangar-card-role">Electric</span>
+          <span class="hangar-card-desc">Arc lightning cannon. EMP pulse on Q that paralyzes every enemy ahead and drops them out of the sky. Energy shield on E.</span>
+        </button>
+      </div>
+      <button id="launch-btn" class="hud-btn is-primary" type="button">LAUNCH</button>
+    </div>
+  </div>
+
   <!-- Main WebGPU Canvas -->
   <canvas id="gpu-canvas"></canvas>
 
@@ -57,7 +79,7 @@
             <span id="targets-val" class="stat-value orange">000</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">SWARM [E]</span>
+            <span id="skill-label" class="stat-label">SWARM [E]</span>
             <span id="swarm-val" class="stat-value cyan">READY</span>
           </div>
           <div class="stat-item">
@@ -78,12 +100,12 @@
 
     <div class="hud-bottom">
       <div class="bottom-bar">
-        <div class="control-hint">STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE</div>
+        <div id="control-hint" class="control-hint">STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE</div>
         <button id="swarm-mode-btn" class="hud-btn" type="button" aria-pressed="false" aria-label="Swarm role: attacker. Activate to switch to shielder.">SWARM · ATTACK</button>
         <button id="pause-btn" class="hud-btn" type="button" aria-label="Pause Game">PAUSE</button>
         <button id="restart-btn" class="hud-btn" type="button" aria-label="Restart Game">RESTART</button>
       </div>
-      <div class="control-subhint">WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART</div>
+      <div id="control-subhint" class="control-subhint">WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART</div>
     </div>
   </div>
 
