@@ -425,7 +425,210 @@ function takeFreeProjectile(sim) {
     elapsed += DT;
   }
   check('H3 sustained enemy fire eventually destroys an idle aircraft', sim.gameOver === true, `survived=${elapsed.toFixed(1)}s`);
-  check('H4 an idle player gets a fighting window before dying', elapsed > 18, `survived=${elapsed.toFixed(1)}s`);
+  check('H4 the idle player survives until the projectors escalate', elapsed > 16, `survived=${elapsed.toFixed(1)}s`);
+}
+
+{
+  const sim = newSim();
+  const ms = sim.mothership;
+
+  check('I1 the flagship carries 100x its original hull', ms.maxHp === 6500 && ms.hp === 6500, `hp=${ms.hp} maxHp=${ms.maxHp}`);
+  check('I2 a full shield ring deploys with the flagship', sim.countShieldingDrones() === 8, `shielding=${sim.countShieldingDrones()}`);
+  check('I3 the flagship starts shielded', sim.isMothershipShielded() === true);
+
+  const shieldedHp = ms.hp;
+  const blockedBolt = sim.projectiles.find((p) => !p.active);
+  blockedBolt.active = true;
+  blockedBolt.isEnemy = false;
+  blockedBolt.isSwarm = false;
+  blockedBolt.x = ms.x;
+  blockedBolt.y = ms.y;
+  blockedBolt.z = ms.z;
+  blockedBolt.vx = 0;
+  blockedBolt.vy = 0;
+  blockedBolt.vz = 0;
+  blockedBolt.life = 1.0;
+  sim.step(DT);
+  check('I4 a bolt on the shielded flagship is blocked, not absorbed', ms.hp === shieldedHp && blockedBolt.active === false, `hp=${ms.hp}`);
+
+  const target = sim.shieldDrones[0];
+  target.active = true;
+  target.mode = 'shield';
+  target.hp = 1;
+  const ringBefore = sim.countShieldingDrones();
+  const droneBolt = sim.projectiles.find((p) => !p.active);
+  droneBolt.active = true;
+  droneBolt.isEnemy = false;
+  droneBolt.isSwarm = false;
+  droneBolt.x = target.x;
+  droneBolt.y = target.y;
+  droneBolt.z = target.z;
+  droneBolt.vx = 0;
+  droneBolt.vy = 0;
+  droneBolt.vz = 0;
+  droneBolt.life = 1.0;
+  sim.step(DT);
+  check('I5 a shield drone can be destroyed', target.active === false && sim.countShieldingDrones() === ringBefore - 1, `shielding ${ringBefore} -> ${sim.countShieldingDrones()}`);
+
+  for (const sd of sim.shieldDrones) sd.active = false;
+  sim.step(DT);
+  check('I6 the shield drops when the last projector dies', sim.isMothershipShielded() === false);
+  check('I7 the shield loss arms a redeploy timer', ms.shieldBroken === true && ms.redeployTimer > 25, `timer=${ms.redeployTimer.toFixed(1)}`);
+
+  const openHp = ms.hp;
+  const openBolt = sim.projectiles.find((p) => !p.active);
+  openBolt.active = true;
+  openBolt.isEnemy = false;
+  openBolt.isSwarm = false;
+  openBolt.x = ms.x;
+  openBolt.y = ms.y;
+  openBolt.z = ms.z;
+  openBolt.vx = 0;
+  openBolt.vy = 0;
+  openBolt.vz = 0;
+  openBolt.life = 1.0;
+  sim.step(DT);
+  check('I8 an unshielded flagship takes scaled bolt damage', ms.hp === openHp - 8, `hp ${openHp} -> ${ms.hp}`);
+}
+
+{
+  const sim = newSim();
+  const ms = sim.mothership;
+  const missile = sim.missiles.find((m) => !m.active);
+  missile.active = true;
+  missile.x = ms.x;
+  missile.y = ms.y;
+  missile.z = ms.z;
+  missile.vx = 0;
+  missile.vy = 0;
+  missile.vz = 0;
+  missile.speed = 100;
+  missile.life = 1;
+  missile.targetIdx = -1;
+  const shieldedHp = ms.hp;
+  sim.step(DT);
+  check('J1 a missile on the shielded flagship is blocked', ms.hp === shieldedHp, `hp=${ms.hp}`);
+
+  for (const sd of sim.shieldDrones) sd.active = false;
+  sim.step(DT);
+
+  const openMissile = sim.missiles.find((m) => !m.active);
+  openMissile.active = true;
+  openMissile.x = ms.x;
+  openMissile.y = ms.y;
+  openMissile.z = ms.z;
+  openMissile.vx = 0;
+  openMissile.vy = 0;
+  openMissile.vz = 0;
+  openMissile.speed = 100;
+  openMissile.life = 1;
+  openMissile.targetIdx = -1;
+  const openHp = ms.hp;
+  sim.step(DT);
+  check('J2 an unshielded flagship takes scaled missile damage', ms.hp === openHp - 80, `hp ${openHp} -> ${ms.hp}`);
+
+  const redeploySim = newSim();
+  redeploySim.mothership.shieldBroken = false;
+  for (const sd of redeploySim.shieldDrones) sd.active = false;
+  redeploySim.step(DT);
+  check('J3 a broken shield schedules a fresh ring', redeploySim.mothership.redeployTimer > 0, `timer=${redeploySim.mothership.redeployTimer.toFixed(1)}`);
+  stepFor(redeploySim, 31);
+  check('J4 the ring redeploys after the delay', redeploySim.countShieldingDrones() === 8, `shielding=${redeploySim.countShieldingDrones()}`);
+  check('J5 the redeployed flagship is shielded again', redeploySim.isMothershipShielded() === true);
+}
+
+{
+  const sim = newSim();
+  const kamikaze = sim.shieldDrones[0];
+  kamikaze.mode = 'shield';
+  kamikaze.age = 14.99;
+  sim.step(DT);
+  check('K1 a projector converts to kamikaze at 15 seconds', kamikaze.mode === 'kamikaze', `mode=${kamikaze.mode} age=${kamikaze.age.toFixed(2)}`);
+
+  let hits = 0;
+  const realDamage = sim.applyJetDamage.bind(sim);
+  sim.applyJetDamage = (amount, x, y, z, scale) => {
+    hits++;
+    realDamage(amount, x, y, z, scale);
+  };
+  for (let i = 0; i < 60 * 30 && hits === 0; i++) sim.step(DT);
+  check('K2 a kamikaze reaches and damages the aircraft', hits > 0, `hits=${hits}`);
+
+  const untouched = sim.shieldDrones.find((sd) => sd.mode === 'shield' && sd.active);
+  check('K3 untouched projectors keep guarding while others dive', untouched !== undefined || sim.countShieldingDrones() > 0, `shielding=${sim.countShieldingDrones()}`);
+}
+
+{
+  const sim = newSim();
+  check('L1 the swarm defaults to attacker', sim.jet.swarmRole === 'attacker', sim.jet.swarmRole);
+
+  sim.toggleSwarmRole();
+  check('L2 toggling switches to shielder', sim.jet.swarmRole === 'shielder', sim.jet.swarmRole);
+  check('L3 the mode control reflects shielder state', elements.get('swarm-mode-btn').textContent === 'SWARM · SHIELD' && elements.get('swarm-mode-btn').getAttribute('aria-pressed') === 'true', elements.get('swarm-mode-btn').textContent);
+
+  sim.toggleSwarmRole();
+  check('L4 toggling returns to attacker', sim.jet.swarmRole === 'attacker' && sim.jet.shieldHp === 0);
+  check('L5 the mode control reflects attacker state', elements.get('swarm-mode-btn').textContent === 'SWARM · ATTACK' && elements.get('swarm-mode-btn').getAttribute('aria-pressed') === 'false');
+
+  sim.toggleSwarmRole();
+  sim.deployAlliedSwarm();
+  check('L6 a shielder deployment charges the shield pool', sim.jet.shieldHp === 45, `shieldHp=${sim.jet.shieldHp}`);
+
+  const hullBefore = sim.jet.health;
+  sim.applyJetDamage(25, 0, 1.5, 0, 0.5);
+  check('L7 the shield absorbs damage before the hull', sim.jet.health === hullBefore && sim.jet.shieldHp === 20, `hp=${sim.jet.health} shield=${sim.jet.shieldHp}`);
+  check('L8 the hull tracker exposes the shield', elements.get('shield-tracker').classList.contains('hidden') === false);
+  check('L9 shield integrity is announced', elements.get('shield-tracker').getAttribute('aria-valuenow') === '44', elements.get('shield-tracker').getAttribute('aria-valuenow'));
+
+  sim.applyJetDamage(40, 0, 1.5, 0, 0.5);
+  check('L10 overflow damage reaches the hull when the shield breaks', sim.jet.health === hullBefore - 20 && sim.jet.shieldHp === 0, `hp=${sim.jet.health} shield=${sim.jet.shieldHp}`);
+  check('L11 breaking the shield scatters the swarm', sim.swarmDrones.every((sd) => sd.active === false));
+
+  const attacker = newSim();
+  attacker.deployAlliedSwarm();
+  stepFor(attacker, 0.5);
+  check('L12 an attacker swarm still fires', attacker.projectiles.some((p) => p.active && p.isSwarm), `swarmBolts=${attacker.projectiles.filter((p) => p.active && p.isSwarm).length}`);
+
+  const shielder = newSim();
+  shielder.toggleSwarmRole();
+  shielder.deployAlliedSwarm();
+  stepFor(shielder, 0.5);
+  check('L13 a shielder swarm does not fire', shielder.projectiles.every((p) => !p.active || !p.isSwarm));
+  check('L14 a shielder swarm holds its shield pool', shielder.jet.shieldHp === 45, `shieldHp=${shielder.jet.shieldHp}`);
+}
+
+{
+  const sim = newSim();
+  const info = sim.prepareRenderData(16 / 9);
+  check('M1 the render exposes a shieldDrone batch', info.batches.shieldDrone !== undefined, JSON.stringify(info.batches.shieldDrone));
+  check('M2 the ring renders eight projectors', info.batches.shieldDrone.count === 8, `count=${info.batches.shieldDrone.count}`);
+  check('M3 the render exposes a shieldDome batch', info.batches.shieldDome !== undefined, JSON.stringify(info.batches.shieldDome));
+  check('M4 the flagship dome renders while shielded', info.batches.shieldDome.count >= 1, `count=${info.batches.shieldDome.count}`);
+  check('M5 the instance budget is respected', info.totalInstances <= 1024, `instances=${info.totalInstances}`);
+
+  const domeBefore = sim.prepareRenderData(16 / 9).batches.shieldDome.count;
+  for (const sd of sim.shieldDrones) sd.active = false;
+  sim.mothership.shieldFlash = 0;
+  const domeAfter = sim.prepareRenderData(16 / 9).batches.shieldDome.count;
+  check('M6 the dome is dropped once the shield is gone', domeAfter < domeBefore, `${domeBefore} -> ${domeAfter}`);
+
+  const bubbleSim = newSim();
+  bubbleSim.toggleSwarmRole();
+  bubbleSim.deployAlliedSwarm();
+  const bubbleInfo = bubbleSim.prepareRenderData(16 / 9);
+  check('M7 the player bubble renders alongside the flagship dome', bubbleInfo.batches.shieldDome.count === 2, `count=${bubbleInfo.batches.shieldDome.count}`);
+
+  const noBubbleSim = newSim();
+  noBubbleSim.deployAlliedSwarm();
+  const noBubbleInfo = noBubbleSim.prepareRenderData(16 / 9);
+  check('M8 no player bubble renders in attacker role', noBubbleInfo.batches.shieldDome.count === 1, `count=${noBubbleInfo.batches.shieldDome.count}`);
+
+  const lateSwitchSim = newSim();
+  lateSwitchSim.deployAlliedSwarm();
+  lateSwitchSim.toggleSwarmRole();
+  const lateSwitchInfo = lateSwitchSim.prepareRenderData(16 / 9);
+  check('M9 switching role after deploying still raises the bubble', lateSwitchSim.jet.swarmRole === 'shielder' && lateSwitchSim.jet.shieldHp === 45, `shieldHp=${lateSwitchSim.jet.shieldHp}`);
+  check('M10 the late-switch bubble renders', lateSwitchInfo.batches.shieldDome.count === 2, `count=${lateSwitchInfo.batches.shieldDome.count}`);
 }
 
 const failures = results.filter((r) => !r.passed);

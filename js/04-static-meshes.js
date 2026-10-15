@@ -516,9 +516,6 @@
       }
       const meshMissile = gb.endMesh(missileMarker);
 
-      // ========================================================================
-      // MESH 9: ENEMY AERIAL MOTHERSHIP CARRIER (Flagship with Twin Hangar Bays)
-      // ========================================================================
       const mothershipMarker = gb.beginMesh();
       {
         const COL_CARRIER_HULL  = [0.14, 0.16, 0.21];
@@ -526,34 +523,32 @@
         const COL_CRIMSON_TRIM  = [0.68, 0.12, 0.16];
         const COL_HANGAR_GLOW   = [1.00, 0.24, 0.14];
         const COL_REACTOR_CORE  = [0.95, 0.20, 0.78];
+        const COL_SHIELD_CYAN   = [0.35, 0.92, 1.00];
 
-        // Massive central armored carrier citadel (oriented facing +Z toward the player)
-        const m0 = makeFuselageRing(-14.0, 2.2,  0.0,  1.2, -1.0, 0.70); // Rear stern
-        const m1 = makeFuselageRing( -7.5, 4.8,  0.2,  2.3, -1.9, 0.75); // Rear engine section
-        const m2 = makeFuselageRing(  0.0, 6.2,  0.3,  2.7, -2.2, 0.78); // Central hangar citadel
-        const m3 = makeFuselageRing(  7.5, 4.6,  0.1,  2.0, -1.8, 0.74); // Forward command prow
-        const m4 = makeFuselageRing( 12.5, 1.6, -0.1,  0.8, -0.8, 0.65); // Forward armored ram bow
+        const m0 = makeFuselageRing(-22.4, 3.52,  0.00, 1.92, -1.60, 0.70);
+        const m1 = makeFuselageRing(-12.0, 7.68,  0.32, 3.68, -3.04, 0.75);
+        const m2 = makeFuselageRing(  0.0, 9.92,  0.48, 4.32, -3.52, 0.78);
+        const m3 = makeFuselageRing( 12.0, 7.36,  0.16, 3.20, -2.88, 0.74);
+        const m4 = makeFuselageRing( 20.0, 2.56, -0.16, 1.28, -1.28, 0.65);
 
         gb.addLoftSection(m0, m1, COL_CARRIER_DECK, COL_SILVER_METAL, COL_CARRIER_HULL, MAT_METAL);
         gb.addLoftSection(m1, m2, COL_CARRIER_HULL, COL_CRIMSON_TRIM, COL_CARRIER_HULL, MAT_GRAPHITE);
         gb.addLoftSection(m2, m3, COL_CARRIER_DECK, COL_CARRIER_HULL, COL_CARRIER_HULL, MAT_GRAPHITE);
         gb.addLoftSection(m3, m4, COL_CRIMSON_TRIM, COL_SILVER_METAL, COL_CARRIER_HULL, MAT_METAL);
 
-        // Elevated dorsal command bridge tower
-        const b0 = makeFuselageRing(-5.5, 1.4, 2.4, 3.6, 2.1, 0.7);
-        const b1 = makeFuselageRing(-1.0, 1.8, 2.6, 4.4, 2.2, 0.72);
-        const b2 = makeFuselageRing( 3.5, 1.1, 2.5, 3.8, 2.1, 0.68);
+        const b0 = makeFuselageRing(-8.8, 2.24, 3.84, 5.76, 3.36, 0.70);
+        const b1 = makeFuselageRing(-1.6, 2.88, 4.16, 7.04, 3.52, 0.72);
+        const b2 = makeFuselageRing( 5.6, 1.76, 4.00, 6.08, 3.36, 0.68);
         gb.addLoftSection(b0, b1, COL_CARRIER_DECK, COL_SILVER_METAL, COL_CARRIER_HULL, MAT_METAL);
-        gb.addLoftSection(b1, b2, COL_CRIMSON_TRIM, COL_HANGAR_GLOW,  COL_CARRIER_HULL, MAT_EMISSIVE);
+        gb.addLoftSection(b1, b2, COL_CRIMSON_TRIM, COL_HANGAR_GLOW, COL_CARRIER_HULL, MAT_EMISSIVE);
 
-        // Swept heavy carrier flight-deck wings (spanning X = -22 to +22)
         gb.addSymmetricAirfoil(
-          [ 4.2,  0.2, -6.5],
-          [ 4.2,  0.2,  6.5],
-          0.75,
-          [21.5, -0.6, -3.5],
-          [21.5, -0.6,  3.8],
-          0.28,
+          [ 6.72,  0.32, -10.40],
+          [ 6.72,  0.32,  10.40],
+          1.20,
+          [34.40, -0.96,  -5.60],
+          [34.40, -0.96,   6.08],
+          0.448,
           COL_CARRIER_HULL,
           COL_SILVER_METAL,
           COL_CRIMSON_TRIM,
@@ -561,14 +556,13 @@
           MAT_GRAPHITE
         );
 
-        // Lower ventral stabilizer fins
         gb.addSymmetricAirfoil(
-          [ 3.2, -1.2, -5.0],
-          [ 3.2, -1.2,  4.0],
-          0.35,
-          [ 9.5, -4.2, -2.0],
-          [ 9.5, -4.2,  2.5],
-          0.14,
+          [ 5.12, -1.92, -8.00],
+          [ 5.12, -1.92,  6.40],
+          0.56,
+          [15.20, -6.72, -3.20],
+          [15.20, -6.72,  4.00],
+          0.224,
           COL_CARRIER_DECK,
           COL_SILVER_METAL,
           COL_CRIMSON_TRIM,
@@ -576,22 +570,132 @@
           MAT_GRAPHITE
         );
 
-        // Twin Sub-Wing Hangar Launch Bays (Left & Right launch portals where enemies spawn)
         for (const sign of [-1, 1]) {
-          const hx = 8.2 * sign;
-          const hy = -1.15;
-          // Armored outer hangar pod shroud
-          addCylinderZ(hx, hy, -5.5, 6.2, 1.65, 1.85, 8, COL_CARRIER_DECK, MAT_METAL);
-          // Glowing crimson/orange internal launch bay portal facing forward (+Z)
-          addCylinderZ(hx, hy,  4.8, 6.45, 1.35, 1.15, 8, COL_HANGAR_GLOW, MAT_EMISSIVE);
-          // Upper dorsal heavy reactor core
-          addCylinderZ(4.5 * sign, 1.35, -8.0, 3.5, 0.65, 0.55, 8, COL_REACTOR_CORE, MAT_EMISSIVE);
+          const hx = 13.12 * sign;
+          const hy = -1.84;
+          addCylinderZ(hx, hy, -8.80, 9.92, 2.64, 2.96, 8, COL_CARRIER_DECK, MAT_METAL);
+          addCylinderZ(hx, hy,  7.68, 10.32, 2.16, 1.84, 8, COL_HANGAR_GLOW, MAT_EMISSIVE);
+          addCylinderZ(7.20 * sign, 2.16, -12.80, 5.60, 1.04, 0.88, 8, COL_REACTOR_CORE, MAT_EMISSIVE);
         }
 
-        // Central ventral flagship reactor eye
-        addCylinderZ(0.0, -1.65, 2.5, 8.8, 0.95, 0.65, 10, COL_REACTOR_CORE, MAT_EMISSIVE);
+        addCylinderZ(0.0, -2.64, 4.00, 14.08, 1.52, 1.04, 10, COL_REACTOR_CORE, MAT_EMISSIVE);
+
+        const plateA0 = makeFuselageRing(-14.0, 7.90, 0.50, 3.70, -3.15, 0.62);
+        const plateA1 = makeFuselageRing(  9.0, 9.00, 0.35, 3.85, -3.40, 0.62);
+        gb.addLoftSection(plateA0, plateA1, COL_CARRIER_HULL, COL_CRIMSON_TRIM, COL_CARRIER_HULL, MAT_GRAPHITE);
+
+        const plateB0 = makeFuselageRing(-17.0, 7.80, 0.45, 3.30, -2.90, 0.58);
+        const plateB1 = makeFuselageRing(  4.0, 11.00, 0.70, 4.40, -3.75, 0.58);
+        gb.addLoftSection(plateB0, plateB1, COL_CRIMSON_TRIM, COL_CARRIER_HULL, COL_CARRIER_HULL, MAT_GRAPHITE);
+
+        const emitterNodes = [
+          [-9.0, 8.50, 0.36],
+          [ 0.0, 10.10, 0.48],
+          [ 9.0, 8.30, 0.24]
+        ];
+        for (const sign of [-1, 1]) {
+          for (const node of emitterNodes) {
+            addCylinderZ(node[1] * sign, node[2], node[0] - 0.45, node[0] + 0.45, 0.52, 0.36, 6, COL_SHIELD_CYAN, MAT_EMISSIVE);
+          }
+        }
+
+        const c0 = makeFuselageRing(-2.0, 1.05, 6.90, 7.90, 6.50, 0.66);
+        const c1 = makeFuselageRing( 3.5, 0.75, 6.80, 7.50, 6.40, 0.62);
+        gb.addLoftSection(c0, c1, COL_CARRIER_DECK, COL_SILVER_METAL, COL_CARRIER_HULL, MAT_METAL);
+
+        const canopyA = makeFuselageRing(2.6, 0.85, 7.20, 7.70, 6.70, 0.70);
+        const canopyB = makeFuselageRing(4.4, 0.60, 7.10, 7.40, 6.70, 0.66);
+        gb.addLoftSection(canopyA, canopyB, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_CARRIER_HULL, MAT_CANOPY);
+
+        for (const sign of [-1, 1]) {
+          addCylinderZ(5.0 * sign, -3.60, -6.00, -5.75, 0.90, 0.90, 8, COL_REACTOR_CORE, MAT_EMISSIVE);
+          addCylinderZ(5.0 * sign, -3.40,  4.50,  4.75, 0.80, 0.80, 8, COL_REACTOR_CORE, MAT_EMISSIVE);
+        }
+
+        for (const sign of [-1, 1]) {
+          addCylinderZ(12.5 * sign, 1.60, 0.00, 12.00, 0.34, 0.24, 6, COL_SILVER_METAL, MAT_METAL);
+          addCylinderZ(14.0 * sign, 1.60, 11.60, 12.70, 0.20, 0.12, 6, COL_SHIELD_CYAN, MAT_EMISSIVE);
+        }
       }
       const meshMothership = gb.endMesh(mothershipMarker);
+
+      const shieldDroneMarker = gb.beginMesh();
+      {
+        const COL_SHIELD_CYAN = [0.35, 0.92, 1.00];
+        const COL_CRIMSON_ACCENT = [0.68, 0.12, 0.16];
+
+        const d0 = makeFuselageRing(-2.00, 0.06, 0.00, 0.04, -0.04, 0.50);
+        const d1 = makeFuselageRing(-1.00, 0.32, 0.02, 0.22, -0.18, 0.60);
+        const d2 = makeFuselageRing( 0.40, 0.55, 0.04, 0.34, -0.30, 0.62);
+        const d3 = makeFuselageRing( 1.60, 0.30, 0.01, 0.18, -0.16, 0.60);
+
+        gb.addLoftSection(d0, d1, COL_SILVER_METAL, COL_SILVER_METAL, COL_GRAPHITE_DARK, MAT_METAL);
+        gb.addLoftSection(d1, d2, COL_GRAPHITE_DARK, COL_GRAPHITE_MID, COL_GRAPHITE_DARK, MAT_GRAPHITE);
+        gb.addLoftSection(d2, d3, COL_GRAPHITE_DARK, COL_CRIMSON_ACCENT, COL_GRAPHITE_DARK, MAT_METAL);
+
+        addCylinderZ(0.0, 0.0, -2.15, -1.30, 0.50, 0.34, 8, COL_SHIELD_CYAN, MAT_EMISSIVE);
+
+        gb.addSymmetricAirfoil(
+          [0.50, 0.00, -0.70],
+          [0.50, 0.00,  0.85],
+          0.06,
+          [1.95, 0.16, 0.10],
+          [1.95, 0.16, 0.95],
+          0.03,
+          COL_GRAPHITE_DARK,
+          COL_SILVER_METAL,
+          COL_CRIMSON_ACCENT,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        addCylinderZ(0.0, 0.0, 1.35, 1.62, 0.16, 0.10, 8, COL_SHIELD_CYAN, MAT_EMISSIVE);
+      }
+      const meshShieldDrone = gb.endMesh(shieldDroneMarker);
+
+      const shieldDomeMarker = gb.beginMesh();
+      {
+        const COL_SHIELD_GLOW = [0.55, 0.95, 1.00];
+        const segmentCount = 24;
+        const ringCount = 12;
+        const domeRadius = 1.0;
+
+        const latitudeRings = [];
+        for (let ringIndex = 1; ringIndex <= ringCount; ringIndex++) {
+          const polarAngle = (ringIndex / (ringCount + 1)) * Math.PI;
+          const ringRadius = Math.sin(polarAngle) * domeRadius;
+          const ringY = Math.cos(polarAngle) * domeRadius;
+          const ringPoints = [];
+          for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+            const azimuth = (segmentIndex / segmentCount) * Math.PI * 2.0;
+            ringPoints.push([
+              Math.cos(azimuth) * ringRadius,
+              ringY,
+              Math.sin(azimuth) * ringRadius
+            ]);
+          }
+          latitudeRings.push(ringPoints);
+        }
+
+        const northPole = [0.0, domeRadius, 0.0];
+        const southPole = [0.0, -domeRadius, 0.0];
+
+        for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+          const nextSegment = (segmentIndex + 1) % segmentCount;
+          gb.addTri(northPole, latitudeRings[0][nextSegment], latitudeRings[0][segmentIndex], COL_SHIELD_GLOW, MAT_EMISSIVE);
+          gb.addTri(southPole, latitudeRings[ringCount - 1][segmentIndex], latitudeRings[ringCount - 1][nextSegment], COL_SHIELD_GLOW, MAT_EMISSIVE);
+        }
+
+        for (let ringIndex = 0; ringIndex < ringCount - 1; ringIndex++) {
+          const upperRing = latitudeRings[ringIndex];
+          const lowerRing = latitudeRings[ringIndex + 1];
+          for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+            const nextSegment = (segmentIndex + 1) % segmentCount;
+            gb.addQuad(upperRing[segmentIndex], upperRing[nextSegment], lowerRing[nextSegment], lowerRing[segmentIndex], COL_SHIELD_GLOW, MAT_EMISSIVE);
+          }
+        }
+      }
+      const meshShieldDome = gb.endMesh(shieldDomeMarker);
 
       return {
         vertexData: new Float32Array(gb.vertices),
@@ -606,7 +710,9 @@
           terrain: meshTerrain,
           shard: meshShard,
           missile: meshMissile,
-          mothership: meshMothership
+          mothership: meshMothership,
+          shieldDrone: meshShieldDrone,
+          shieldDome: meshShieldDome
         }
       };
     }

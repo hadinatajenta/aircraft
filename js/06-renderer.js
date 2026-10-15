@@ -317,6 +317,8 @@
             sim.togglePause();
           } else if (code === 'KeyR') {
             sim.reset();
+          } else if (code === 'KeyF') {
+            sim.toggleSwarmRole();
           }
         }
       }
@@ -335,6 +337,7 @@
       document.getElementById('pause-btn').addEventListener('click', () => sim.togglePause());
       document.getElementById('restart-btn').addEventListener('click', restartMission);
       document.getElementById('gameover-restart-btn').addEventListener('click', restartMission);
+      document.getElementById('swarm-mode-btn').addEventListener('click', () => sim.toggleSwarmRole());
 
       // Mobile Virtual Stick & Fire Multitouch Handlers
       const stickZone  = document.getElementById('touch-stick');
@@ -435,6 +438,17 @@
       swarmBtn.addEventListener('pointerup', endTouchSwarm);
       swarmBtn.addEventListener('pointercancel', endTouchSwarm);
 
+      const swarmModeBtn = document.getElementById('touch-swarm-mode');
+      swarmModeBtn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        swarmModeBtn.classList.add('active');
+        sim.toggleSwarmRole();
+      });
+
+      const endTouchSwarmMode = () => swarmModeBtn.classList.remove('active');
+      swarmModeBtn.addEventListener('pointerup', endTouchSwarmMode);
+      swarmModeBtn.addEventListener('pointercancel', endTouchSwarmMode);
+
       // 10. Main Fixed-Timestep Simulation & WebGPU Render Loop
       const FIXED_DT = 1.0 / 60.0;
       let accumulator = 0.0;
@@ -520,6 +534,9 @@
         if (b.heavyDrone.count > 0) {
           renderPass.drawIndexed(meshes.heavyDrone.indexCount, b.heavyDrone.count, meshes.heavyDrone.firstIndex, 0, b.heavyDrone.first);
         }
+        if (b.shieldDrone.count > 0) {
+          renderPass.drawIndexed(meshes.shieldDrone.indexCount, b.shieldDrone.count, meshes.shieldDrone.firstIndex, 0, b.shieldDrone.first);
+        }
         if (b.missile.count > 0) {
           renderPass.drawIndexed(meshes.missile.indexCount, b.missile.count, meshes.missile.firstIndex, 0, b.missile.first);
         }
@@ -537,6 +554,9 @@
         }
         if (b.shard.count > 0) {
           renderPass.drawIndexed(meshes.shard.indexCount, b.shard.count, meshes.shard.firstIndex, 0, b.shard.first);
+        }
+        if (b.shieldDome.count > 0) {
+          renderPass.drawIndexed(meshes.shieldDome.indexCount, b.shieldDome.count, meshes.shieldDome.firstIndex, 0, b.shieldDome.first);
         }
 
         renderPass.end();

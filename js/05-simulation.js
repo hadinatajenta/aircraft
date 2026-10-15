@@ -21,6 +21,40 @@
     const RECON_CRASH_DAMAGE  = 10;
     const HEAVY_CRASH_DAMAGE  = 20;
 
+    const MOTHERSHIP_INSTANCE_SCALE = 1.15;
+    const MOTHERSHIP_MAX_HP         = 6500;
+    const MOTHERSHIP_BULLET_DAMAGE  = 8;
+    const MOTHERSHIP_MISSILE_DAMAGE = 80;
+    const MOTHERSHIP_RESPAWN_GROWTH = 1.25;
+    const MOTHERSHIP_HANGAR_BAY_X   = 13.12 * MOTHERSHIP_INSTANCE_SCALE;
+    const MOTHERSHIP_HANGAR_BAY_Y   = -1.84 * MOTHERSHIP_INSTANCE_SCALE;
+    const MOTHERSHIP_HANGAR_BAY_Z   = 9.9 * MOTHERSHIP_INSTANCE_SCALE;
+    const MOTHERSHIP_BOLT_HIT_X     = 20.0;
+    const MOTHERSHIP_BOLT_HIT_Y     = 7.5;
+    const MOTHERSHIP_BOLT_HIT_Z     = 19.0;
+    const MOTHERSHIP_MISSILE_HIT_X  = 22.0;
+    const MOTHERSHIP_MISSILE_HIT_Y  = 8.6;
+    const MOTHERSHIP_MISSILE_HIT_Z  = 21.0;
+
+    const SHIELD_DRONE_COUNT     = 8;
+    const SHIELD_DRONE_HP        = 1;
+    const SHIELD_DRONE_PATIENCE  = 15.0;
+    const SHIELD_RING_RADIUS     = 42.0;
+    const SHIELD_RING_Y_SCALE    = 0.18;
+    const SHIELD_RING_SPIN       = 0.30;
+    const SHIELD_DOME_RADIUS_X   = 46.0;
+    const SHIELD_DOME_RADIUS_Y   = 14.0;
+    const SHIELD_DOME_RADIUS_Z   = 46.0;
+    const SHIELD_REDEPLOY_DELAY  = 30.0;
+    const KAMIKAZE_SPEED         = 55.0;
+    const KAMIKAZE_DAMAGE        = 12;
+    const KAMIKAZE_TRIGGER_RANGE = 2.2;
+
+    const PLAYER_SHIELD_CAPACITY    = 45;
+    const PLAYER_SHIELD_DOME_RADIUS = 6.2;
+    const SWARM_ROLE_ATTACKER       = 'attacker';
+    const SWARM_ROLE_SHIELDER       = 'shielder';
+
     class SkystrikeSimulation {
       constructor() {
         this.reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -37,6 +71,11 @@
         this.hpTrackerEl   = document.getElementById('hp-tracker');
         this.hpFillEl      = document.getElementById('hp-fill');
         this.hpValueEl     = document.getElementById('hp-value');
+        this.shieldTrackerEl = document.getElementById('shield-tracker');
+        this.shieldFillEl    = document.getElementById('shield-fill');
+        this.shieldValueEl   = document.getElementById('shield-value');
+        this.shieldEl        = document.getElementById('shield-val');
+        this.swarmModeEl     = document.getElementById('swarm-mode-btn');
         this.gameOverEl    = document.getElementById('gameover-overlay');
         this.gameOverScoreEl   = document.getElementById('gameover-score');
         this.gameOverTargetsEl = document.getElementById('gameover-targets');
@@ -67,6 +106,13 @@
         this.swarmDrones = Array.from({ length: ALLIED_SWARM_COUNT }, (_, idx) => ({
           active: false, slotIdx: idx, x: 0, y: 0, z: 0,
           yaw: 0, pitch: 0, roll: 0, fireTimer: 0, muzzleFlash: 0
+        }));
+
+        this.shieldDrones = Array.from({ length: SHIELD_DRONE_COUNT }, (_, idx) => ({
+          active: false, slotIdx: idx, mode: 'shield',
+          x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
+          orbitAngle: 0, phase: 0, age: 0, hp: SHIELD_DRONE_HP, maxHp: SHIELD_DRONE_HP,
+          hitFlash: 0, vx: 0, vy: 0, vz: 0, trailTimer: 0
         }));
 
         this.particles = Array.from({ length: MAX_PARTICLES }, () => ({
@@ -139,7 +185,11 @@
           lockedDroneIdx: -1,
           muzzleFlashTimer: 0,
           gunBarrelToggle: 0,
-          hullFlash: 0
+          hullFlash: 0,
+          swarmRole: SWARM_ROLE_ATTACKER,
+          shieldHp: 0,
+          maxShieldHp: PLAYER_SHIELD_CAPACITY,
+          shieldFlash: 0
         };
 
         // Smooth camera state
@@ -184,14 +234,26 @@
           roll: 0.0,
           pitch: 0.04,
           phase: 0.0,
-          hp: 65,
-          maxHp: 65,
+          hp: MOTHERSHIP_MAX_HP,
+          maxHp: MOTHERSHIP_MAX_HP,
           hitFlash: 0.0,
           bayFlashLeft: 0.0,
           bayFlashRight: 0.0,
           nextBaySide: -1,
-          respawnTimer: 0.0
+          respawnTimer: 0.0,
+          shieldBroken: false,
+          redeployTimer: 0.0,
+          shieldFlash: 0.0
         };
+
+        for (const sd of this.shieldDrones) {
+          sd.active = false;
+          sd.mode = 'shield';
+          sd.hitFlash = 0;
+          sd.trailTimer = 0;
+        }
+
+        this.deployShieldRing();
 
         // Seed 3 initial enemies launching directly from the Mothership hangar bays
         for (let i = 0; i < 3; i++) {
@@ -207,6 +269,84 @@
         this.hideGameOver();
         this.updateHealthBar();
         this.syncPauseUI();
+        this.syncSwarmModeUI();
+      }
+
+      deployShieldRing() {
+        const ms = this.mothership;
+        if (!ms || !ms.active) return;
+
+        for (let i = 0; i < SHIELD_DRONE_COUNT; i++) {
+          const sd = this.shieldDrones[i];
+          sd.active = true;
+          sd.mode = 'shield';
+          sd.hp = SHIELD_DRONE_HP;
+          sd.maxHp = SHIELD_DRONE_HP;
+          sd.age = 0;
+          sd.hitFlash = 0;
+          sd.trailTimer = 0;
+          sd.orbitAngle = (i / SHIELD_DRONE_COUNT) * Math.PI * 2;
+          sd.phase = Math.random() * Math.PI * 2;
+          sd.vx = 0;
+          sd.vy = 0;
+          sd.vz = 0;
+          this.updateShieldDroneTransform(sd, ms.x, ms.y, ms.z, 0);
+        }
+
+        ms.shieldBroken = false;
+        ms.redeployTimer = 0;
+        ms.shieldFlash = 1.0;
+      }
+
+      updateShieldDroneTransform(sd, centreX, centreY, centreZ, dt) {
+        const wobble = Math.sin(sd.phase) * 2.4;
+        const orbitAngle = sd.orbitAngle + this.time * SHIELD_RING_SPIN;
+        sd.x = centreX + Math.cos(orbitAngle) * (SHIELD_RING_RADIUS + wobble);
+        sd.y = centreY + Math.sin(orbitAngle) * (SHIELD_RING_RADIUS + wobble) * SHIELD_RING_Y_SCALE;
+        sd.z = centreZ + Math.cos(sd.phase * 0.7) * 3.2;
+        sd.roll = orbitAngle + Math.PI * 0.5;
+        sd.pitch = 0;
+        sd.yaw = Math.PI;
+        if (dt > 0) sd.phase += dt * 1.15;
+      }
+
+      countShieldingDrones() {
+        let count = 0;
+        for (const sd of this.shieldDrones) {
+          if (sd.active && sd.mode === 'shield') count++;
+        }
+        return count;
+      }
+
+      isMothershipShielded() {
+        return Boolean(this.mothership && this.mothership.active && this.countShieldingDrones() > 0);
+      }
+
+      toggleSwarmRole() {
+        if (this.gameOver) return;
+        const j = this.jet;
+        j.swarmRole = j.swarmRole === SWARM_ROLE_ATTACKER ? SWARM_ROLE_SHIELDER : SWARM_ROLE_ATTACKER;
+
+        if (j.swarmRole === SWARM_ROLE_SHIELDER) {
+          if (j.swarmTimer > 0) j.shieldHp = j.maxShieldHp;
+        } else {
+          j.shieldHp = 0;
+        }
+
+        this.updateHealthBar();
+        this.updateHUD();
+        this.syncSwarmModeUI();
+      }
+
+      syncSwarmModeUI() {
+        if (!this.swarmModeEl) return;
+        const isShielder = this.jet.swarmRole === SWARM_ROLE_SHIELDER;
+        this.swarmModeEl.textContent = isShielder ? 'SWARM · SHIELD' : 'SWARM · ATTACK';
+        this.swarmModeEl.setAttribute('aria-pressed', isShielder ? 'true' : 'false');
+        this.swarmModeEl.setAttribute(
+          'aria-label',
+          isShielder ? 'Swarm role: shielder. Activate to switch to attacker.' : 'Swarm role: attacker. Activate to switch to shielder.'
+        );
       }
 
       initSpeedLine(s, zPos) {
@@ -252,9 +392,9 @@
         }
 
         // World coordinates of the Mothership's Hangar Bay portal
-        const bayWorldX = ms.x + baySide * 8.2 * Math.cos(ms.roll);
-        const bayWorldY = ms.y - 1.15 + baySide * 8.2 * Math.sin(ms.roll);
-        const bayWorldZ = ms.z + 6.5 + forwardAdvanceFactor * 45.0;
+        const bayWorldX = ms.x + baySide * MOTHERSHIP_HANGAR_BAY_X * Math.cos(ms.roll);
+        const bayWorldY = ms.y + MOTHERSHIP_HANGAR_BAY_Y + baySide * MOTHERSHIP_HANGAR_BAY_X * Math.sin(ms.roll);
+        const bayWorldZ = ms.z + MOTHERSHIP_HANGAR_BAY_Z + forwardAdvanceFactor * 45.0;
 
         d.spawnX = bayWorldX;
         d.spawnY = bayWorldY;
@@ -295,8 +435,11 @@
       deployAlliedSwarm() {
         const j = this.jet;
         if (j.swarmTimer > 0 || j.swarmCooldown > 0) return;
-        j.swarmTimer = 10.0; // 10 seconds of continuous autonomous barrage
+        j.swarmTimer = 10.0;
         j.swarmTriggerCooldown = 0.45;
+
+        const isShielder = j.swarmRole === SWARM_ROLE_SHIELDER;
+        if (isShielder) j.shieldHp = j.maxShieldHp;
 
         for (let i = 0; i < ALLIED_SWARM_COUNT; i++) {
           const sd = this.swarmDrones[i];
@@ -309,17 +452,16 @@
             sd.pitch = j.pitch;
             sd.roll = j.roll;
           }
-          // Stagger initial firing timers so the 6 drones unleash a continuous stream of bullets
-          sd.fireTimer = (i / ALLIED_SWARM_COUNT) * 0.11;
-          sd.muzzleFlash = 0.08;
+          sd.fireTimer = isShielder ? Infinity : (i / ALLIED_SWARM_COUNT) * 0.11;
+          sd.muzzleFlash = isShielder ? 0 : 0.08;
 
-          // Cyan energy deployment burst around each wingman drone
           this.spawnTrailParticle(
             sd.x, sd.y, sd.z,
             (Math.random() - 0.5) * 8.0, (Math.random() - 0.5) * 8.0, 10.0,
             0.2, 0.92, 1.0, 0.55, 0.28
           );
         }
+        this.updateHealthBar();
         this.updateHUD();
       }
 
@@ -684,6 +826,24 @@
             this.mothershipEl.textContent = `WARP ${this.mothership.respawnTimer.toFixed(1)}S`;
           }
         }
+        if (this.shieldEl && this.mothership) {
+          const shielding = this.countShieldingDrones();
+          if (this.mothership.active && shielding > 0) {
+            const pct = Math.round((shielding / SHIELD_DRONE_COUNT) * 100);
+            this.shieldEl.textContent = `${pct}%`;
+            this.shieldEl.classList.add('shield-up');
+            this.shieldEl.classList.remove('shield-down');
+          } else if (this.mothership.active) {
+            this.shieldEl.textContent = this.mothership.redeployTimer > 0
+              ? `DOWN · ${Math.ceil(this.mothership.redeployTimer)}S`
+              : 'DOWN';
+            this.shieldEl.classList.remove('shield-up');
+            this.shieldEl.classList.add('shield-down');
+          } else {
+            this.shieldEl.textContent = 'OFFLINE';
+            this.shieldEl.classList.remove('shield-up', 'shield-down');
+          }
+        }
       }
 
       updateHealthBar() {
@@ -700,12 +860,38 @@
         }
         if (this.hpValueEl) this.hpValueEl.textContent = `${percent}%`;
         this.hpTrackerEl.setAttribute('aria-valuenow', String(percent));
+
+        const shieldRatio = j.maxShieldHp > 0 ? Math.max(0, Math.min(1, j.shieldHp / j.maxShieldHp)) : 0;
+        if (this.shieldTrackerEl) {
+          const shieldUp = j.swarmRole === SWARM_ROLE_SHIELDER && j.shieldHp > 0;
+          this.shieldTrackerEl.classList.toggle('hidden', !shieldUp);
+          if (this.shieldFillEl) this.shieldFillEl.style.transform = `scaleX(${shieldRatio.toFixed(4)})`;
+          if (this.shieldValueEl) this.shieldValueEl.textContent = `${Math.round(shieldRatio * 100)}%`;
+          this.shieldTrackerEl.setAttribute('aria-valuenow', String(Math.round(shieldRatio * 100)));
+        }
       }
 
       applyJetDamage(amount, hitX, hitY, hitZ, impactScale) {
         if (this.gameOver) return;
 
         const j = this.jet;
+        if (j.shieldHp > 0 && j.swarmRole === SWARM_ROLE_SHIELDER) {
+          const absorbed = Math.min(j.shieldHp, amount);
+          j.shieldHp -= absorbed;
+          amount -= absorbed;
+          j.shieldFlash = 1.0;
+          this.spawnExplosion(hitX, hitY, hitZ, 8, 0.5);
+          if (j.shieldHp <= 0) {
+            j.shieldHp = 0;
+            for (const sd of this.swarmDrones) sd.active = false;
+            j.swarmTimer = 0;
+            j.swarmCooldown = 4.5;
+          }
+          this.updateHealthBar();
+          this.updateHUD();
+          if (amount <= 0) return;
+        }
+
         j.health = Math.max(0, j.health - amount);
         j.hullFlash = 1.0;
         if (!this.reducedMotion) {
@@ -816,6 +1002,7 @@
         }
 
         if (j.hullFlash > 0) j.hullFlash = Math.max(0, j.hullFlash - dt * 3.5);
+        if (j.shieldFlash > 0) j.shieldFlash = Math.max(0, j.shieldFlash - dt * 4.0);
 
         // 3. Smooth third-person follow camera behind & slightly above aircraft
         const camFollowLerp = 1.0 - Math.exp(-7.5 * dt);
@@ -878,30 +1065,30 @@
           }
         }
 
-        // 4B. Update Allied Swarm Drones (Flanking Halo Formation & Rapid Bullet Barrage)
+        // 4B. Update Allied Swarm Drones (Attacker Barrage or Shielder Bubble Formation)
         if (j.swarmTimer > 0) {
           j.swarmTimer = Math.max(0, j.swarmTimer - dt);
           this.updateHUD();
 
-          // Collect all currently active enemy targets in engagement range ahead
+          const isShielder = j.swarmRole === SWARM_ROLE_SHIELDER;
           const validTargets = [];
-          for (let k = 0; k < MAX_DRONES; k++) {
-            const d = this.drones[k];
-            if (d.active && d.z < j.z - 4.0 && d.z > -285.0) {
-              validTargets.push(d);
+          if (!isShielder) {
+            for (let k = 0; k < MAX_DRONES; k++) {
+              const d = this.drones[k];
+              if (d.active && d.z < j.z - 4.0 && d.z > -285.0) {
+                validTargets.push(d);
+              }
             }
-          }
-          // Sort closest first
-          validTargets.sort((a, b) => b.z - a.z);
-          // If no small drones are active, the Allied Swarm focuses fire on the Enemy Mothership!
-          if (validTargets.length === 0 && this.mothership && this.mothership.active) {
-            validTargets.push({
-              active: true,
-              x: this.mothership.x,
-              y: this.mothership.y,
-              z: this.mothership.z,
-              vz: 0
-            });
+            validTargets.sort((a, b) => b.z - a.z);
+            if (validTargets.length === 0 && this.mothership && this.mothership.active) {
+              validTargets.push({
+                active: true,
+                x: this.mothership.x,
+                y: this.mothership.y,
+                z: this.mothership.z,
+                vz: 0
+              });
+            }
           }
 
           const swarmFollowLerp = 1.0 - Math.exp(-9.0 * dt);
@@ -909,13 +1096,20 @@
             const sd = this.swarmDrones[i];
             sd.active = true;
 
-            // Flanking arc + dynamic orbital weave around and slightly ahead of the fighter
-            const side = (i % 2 === 0) ? -1 : 1;
-            const rank = Math.floor(i / 2); // 0, 1, 2
-            const orbitAngle = this.time * 2.6 + i * (Math.PI / 3);
-            const formX = side * (4.8 + rank * 2.8) + Math.cos(orbitAngle) * 1.1;
-            const formY = 0.65 + (1 - rank) * 1.15 + Math.sin(orbitAngle * 1.3) * 0.85;
-            const formZ = -3.8 - rank * 1.8;
+            const orbitAngle = this.time * (isShielder ? 1.4 : 2.6) + i * (Math.PI / 3);
+            let formX, formY, formZ;
+
+            if (isShielder) {
+              formX = Math.cos(orbitAngle) * (PLAYER_SHIELD_DOME_RADIUS - 0.6);
+              formY = Math.sin(orbitAngle) * (PLAYER_SHIELD_DOME_RADIUS - 0.6) * 0.72;
+              formZ = Math.sin(orbitAngle * 1.7) * 0.9 - 0.4;
+            } else {
+              const side = (i % 2 === 0) ? -1 : 1;
+              const rank = Math.floor(i / 2);
+              formX = side * (4.8 + rank * 2.8) + Math.cos(orbitAngle) * 1.1;
+              formY = 0.65 + (1 - rank) * 1.15 + Math.sin(orbitAngle * 1.3) * 0.85;
+              formZ = -3.8 - rank * 1.8;
+            }
 
             transformAircraftPoint(formX, formY, formZ, j.x, j.y, j.z, j.yaw, j.pitch, j.roll, this.tempVec3A);
             sd.x += (this.tempVec3A[0] - sd.x) * swarmFollowLerp;
@@ -924,10 +1118,11 @@
             sd.roll = j.roll * 0.85 + Math.sin(orbitAngle) * 0.25;
 
             if (sd.muzzleFlash > 0) sd.muzzleFlash = Math.max(0, sd.muzzleFlash - dt);
+            if (isShielder) continue;
 
             sd.fireTimer -= dt;
             if (sd.fireTimer <= 0) {
-              sd.fireTimer = 0.11; // ~9 shots/sec per drone = 54 shots/sec across all 6 swarm drones!
+              sd.fireTimer = 0.11;
               const assignedTarget = validTargets.length > 0
                 ? validTargets[i % validTargets.length]
                 : null;
@@ -939,7 +1134,9 @@
             for (let i = 0; i < ALLIED_SWARM_COUNT; i++) {
               this.swarmDrones[i].active = false;
             }
-            j.swarmCooldown = 4.5; // Brief tactical recharge after 10s deployment
+            j.shieldHp = 0;
+            j.swarmCooldown = 4.5;
+            this.updateHealthBar();
             this.updateHUD();
           }
         }
@@ -1015,15 +1212,32 @@
             }
           }
 
+          for (let s = 0; s < SHIELD_DRONE_COUNT; s++) {
+            const sd = this.shieldDrones[s];
+            if (!sd.active) continue;
+            const sdx = p.x - sd.x;
+            const sdy = p.y - sd.y;
+            const sdz = p.z - sd.z;
+            if (sdx * sdx + sdy * sdy + sdz * sdz < 30.0) {
+              p.active = false;
+              this.damageShieldDrone(sd, 1, p.x, p.y, p.z);
+              break;
+            }
+          }
+
           // Check projectile collision against the Enemy Mothership Flagship
           if (p.active && this.mothership && this.mothership.active) {
             const ms = this.mothership;
             const mdx = Math.abs(p.x - ms.x);
             const mdy = Math.abs(p.y - ms.y);
             const mdz = Math.abs(p.z - ms.z);
-            if (mdx < 16.5 && mdy < 4.5 && mdz < 11.5) {
+            if (mdx < MOTHERSHIP_BOLT_HIT_X && mdy < MOTHERSHIP_BOLT_HIT_Y && mdz < MOTHERSHIP_BOLT_HIT_Z) {
               p.active = false;
-              this.damageMothership(1, p.x, p.y, p.z);
+              if (this.isMothershipShielded()) {
+                this.blockMothershipHit(p.x, p.y, p.z);
+              } else {
+                this.damageMothership(MOTHERSHIP_BULLET_DAMAGE, p.x, p.y, p.z);
+              }
             }
           }
         }
@@ -1158,21 +1372,38 @@
             }
           }
 
+          for (let s = 0; s < SHIELD_DRONE_COUNT; s++) {
+            const sd = this.shieldDrones[s];
+            if (!sd.active) continue;
+            const dsx = m.x - sd.x;
+            const dsy = m.y - sd.y;
+            const dsz = m.z - sd.z;
+            if (dsx * dsx + dsy * dsy + dsz * dsz < 36.0) {
+              m.active = false;
+              this.damageShieldDrone(sd, sd.maxHp, m.x, m.y, m.z);
+              break;
+            }
+          }
+
           // Check homing missile impact against the Enemy Mothership Flagship
           if (m.active && this.mothership && this.mothership.active) {
             const ms = this.mothership;
             const mdx = Math.abs(m.x - ms.x);
             const mdy = Math.abs(m.y - ms.y);
             const mdz = Math.abs(m.z - ms.z);
-            if (mdx < 18.0 && mdy < 5.2 && mdz < 12.5) {
+            if (mdx < MOTHERSHIP_MISSILE_HIT_X && mdy < MOTHERSHIP_MISSILE_HIT_Y && mdz < MOTHERSHIP_MISSILE_HIT_Z) {
               m.active = false;
               this.spawnExplosion(m.x, m.y, m.z, 32, 1.35);
-              this.damageMothership(8, m.x, m.y, m.z);
+              if (this.isMothershipShielded()) {
+                this.blockMothershipHit(m.x, m.y, m.z);
+              } else {
+                this.damageMothership(MOTHERSHIP_MISSILE_DAMAGE, m.x, m.y, m.z);
+              }
             }
           }
         }
 
-        // 5C. Update Enemy Mothership Flagship Movement & Respawn
+        // 5C. Update Enemy Mothership Flagship Movement, Shield Redeployment & Respawn
         const ms = this.mothership;
         if (ms.active) {
           ms.phase += dt * 0.55;
@@ -1183,20 +1414,90 @@
           ms.roll = -Math.cos(ms.phase) * 0.16;
 
           if (ms.hitFlash > 0) ms.hitFlash = Math.max(0, ms.hitFlash - dt * 5.0);
+          if (ms.shieldFlash > 0) ms.shieldFlash = Math.max(0, ms.shieldFlash - dt * 2.6);
           if (ms.bayFlashLeft > 0) ms.bayFlashLeft = Math.max(0, ms.bayFlashLeft - dt * 3.2);
           if (ms.bayFlashRight > 0) ms.bayFlashRight = Math.max(0, ms.bayFlashRight - dt * 3.2);
+
+          if (ms.redeployTimer > 0) {
+            ms.redeployTimer = Math.max(0, ms.redeployTimer - dt);
+            this.updateHUD();
+            if (ms.redeployTimer <= 0) this.deployShieldRing();
+          }
         } else {
           ms.respawnTimer = Math.max(0, ms.respawnTimer - dt);
           this.updateHUD();
           if (ms.respawnTimer <= 0) {
             ms.active = true;
-            ms.z = -335.0; // Warp in from deep horizon
-            ms.maxHp += 15;
+            ms.z = -335.0;
+            ms.maxHp = Math.round(ms.maxHp * MOTHERSHIP_RESPAWN_GROWTH);
             ms.hp = ms.maxHp;
             ms.hitFlash = 0.5;
+            this.deployShieldRing();
             this.updateHUD();
           }
         }
+
+        // 5D. Update the Mothership Shield Ring and its Kamikaze Escalation
+        for (let i = 0; i < SHIELD_DRONE_COUNT; i++) {
+          const sd = this.shieldDrones[i];
+          if (!sd.active) continue;
+
+          if (sd.hitFlash > 0) sd.hitFlash = Math.max(0, sd.hitFlash - dt * 5.5);
+
+          if (sd.mode === 'shield') {
+            sd.age += dt;
+            this.updateShieldDroneTransform(sd, ms.x, ms.y, ms.z, dt);
+            if (sd.age >= SHIELD_DRONE_PATIENCE) {
+              sd.mode = 'kamikaze';
+              sd.vx = 0;
+              sd.vy = 0;
+              sd.vz = 0;
+              sd.trailTimer = 0;
+              sd.roll = 0;
+              this.spawnExplosion(sd.x, sd.y, sd.z, 10, 0.7);
+            }
+            continue;
+          }
+
+          const kdx = j.x - sd.x;
+          const kdy = j.y - sd.y;
+          const kdz = j.z - sd.z;
+          const kamikazeDistance = Math.hypot(kdx, kdy, kdz) || 1.0;
+          const kamikazeLerp = 1.0 - Math.exp(-3.2 * dt);
+
+          sd.vx += ((kdx / kamikazeDistance) * KAMIKAZE_SPEED - sd.vx) * kamikazeLerp;
+          sd.vy += ((kdy / kamikazeDistance) * KAMIKAZE_SPEED - sd.vy) * kamikazeLerp;
+          sd.vz += ((kdz / kamikazeDistance) * KAMIKAZE_SPEED - sd.vz) * kamikazeLerp;
+
+          sd.x += sd.vx * dt;
+          sd.y += sd.vy * dt;
+          sd.z += sd.vz * dt;
+
+          const kamikazeSpeed = Math.hypot(sd.vx, sd.vy, sd.vz) || 1.0;
+          sd.pitch = Math.asin(Math.max(-0.995, Math.min(0.995, sd.vy / kamikazeSpeed)));
+          sd.yaw = Math.atan2(-sd.vx / kamikazeSpeed, -sd.vz / kamikazeSpeed);
+          sd.roll += dt * 6.0;
+
+          sd.trailTimer -= dt;
+          if (sd.trailTimer <= 0) {
+            sd.trailTimer = 0.022;
+            this.spawnTrailParticle(sd.x, sd.y, sd.z, 0, 0, 0, 1.0, 0.34, 0.22, 0.34, 0.2);
+          }
+
+          if (kamikazeDistance < KAMIKAZE_TRIGGER_RANGE) {
+            sd.active = false;
+            this.spawnExplosion(sd.x, sd.y, sd.z, 34, 1.45);
+            if (!this.reducedMotion) this.cam.shake = Math.min(0.7, this.cam.shake + 0.3);
+            this.applyJetDamage(KAMIKAZE_DAMAGE, sd.x, sd.y, sd.z, 1.0);
+            continue;
+          }
+
+          if (sd.z > 26.0) {
+            sd.active = false;
+          }
+        }
+
+        this.refreshMothershipShieldState();
 
         // 6. Update Enemy Drones & Controlled Launch from Mothership Hangar Bays
         let activeDroneCount = 0;
@@ -1317,15 +1618,66 @@
         if (ms.hp <= 0) {
           ms.active = false;
           ms.respawnTimer = 6.0;
+          ms.shieldBroken = true;
+          ms.redeployTimer = 0;
           this.score += 1500;
           this.targetsDestroyed += 1;
-          // Massive multi-point flagship detonation across hull and both hangar bays
+          for (const sd of this.shieldDrones) sd.active = false;
           this.spawnExplosion(ms.x, ms.y, ms.z, 55, 2.4);
-          this.spawnExplosion(ms.x - 9.0, ms.y - 1.0, ms.z + 3.0, 35, 1.8);
-          this.spawnExplosion(ms.x + 9.0, ms.y - 1.0, ms.z + 3.0, 35, 1.8);
+          this.spawnExplosion(ms.x - 14.4, ms.y - 1.6, ms.z + 4.8, 35, 1.8);
+          this.spawnExplosion(ms.x + 14.4, ms.y - 1.6, ms.z + 4.8, 35, 1.8);
           if (!this.reducedMotion) this.cam.shake = 0.85;
         }
         this.updateHUD();
+      }
+
+      damageShieldDrone(shieldDrone, amount, hitX, hitY, hitZ) {
+        shieldDrone.hp -= amount;
+        shieldDrone.hitFlash = 1.0;
+        this.spawnExplosion(hitX, hitY, hitZ, 7, 0.55);
+
+        if (shieldDrone.hp > 0) {
+          this.score += 25;
+          this.updateHUD();
+          return;
+        }
+
+        shieldDrone.active = false;
+        this.score += 150;
+        this.targetsDestroyed += 1;
+        this.spawnExplosion(shieldDrone.x, shieldDrone.y, shieldDrone.z, 26, 1.15);
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.5, this.cam.shake + 0.18);
+        this.updateHUD();
+      }
+
+      blockMothershipHit(hitX, hitY, hitZ) {
+        const ms = this.mothership;
+        if (ms) ms.shieldFlash = 1.0;
+
+        for (let k = 0; k < 4; k++) {
+          this.spawnTrailParticle(
+            hitX, hitY, hitZ,
+            (Math.random() - 0.5) * 16.0,
+            (Math.random() - 0.5) * 16.0,
+            8.0,
+            0.35, 0.92, 1.0, 0.42, 0.24
+          );
+        }
+
+        this.pipperEl?.classList.add('hit-confirm');
+        clearTimeout(this._hitConfirmTimer);
+        this._hitConfirmTimer = setTimeout(() => this.pipperEl?.classList.remove('hit-confirm'), 60);
+      }
+
+      refreshMothershipShieldState() {
+        const ms = this.mothership;
+        if (!ms || !ms.active) return;
+        if (this.countShieldingDrones() > 0) return;
+        if (ms.shieldBroken && ms.redeployTimer > 0) return;
+
+        ms.shieldBroken = true;
+        ms.redeployTimer = SHIELD_REDEPLOY_DELAY;
+        ms.shieldFlash = 1.0;
       }
 
       // Build per-frame GPU uniform & instance buffers and return mesh batch draw ranges
@@ -1485,12 +1837,13 @@
 
         // 2B. ENEMY AERIAL MOTHERSHIP CARRIER (Flagship in the distance)
         const mothershipStart = instCount;
+        const mothershipScale = MOTHERSHIP_INSTANCE_SCALE;
         if (this.mothership && this.mothership.active) {
           const ms = this.mothership;
           pushInstance(
             ms.x, ms.y, ms.z,
             0, ms.pitch, ms.roll,
-            1.15, 1.15, 1.15,
+            mothershipScale, mothershipScale, mothershipScale,
             1, 1, 1, 1,
             0, 0.85, 0.5, ms.hitFlash
           );
@@ -1526,6 +1879,22 @@
           );
         }
         batches.heavyDrone = { first: heavyDroneStart, count: instCount - heavyDroneStart };
+
+        // 3A2. MOTHERSHIP SHIELD PROJECTOR DRONES (Shield ring and kamikaze escalation)
+        const shieldDroneStart = instCount;
+        for (let i = 0; i < SHIELD_DRONE_COUNT; i++) {
+          const sd = this.shieldDrones[i];
+          if (!sd.active) continue;
+          const isKamikaze = sd.mode === 'kamikaze';
+          pushInstance(
+            sd.x, sd.y, sd.z,
+            sd.yaw, sd.pitch, sd.roll,
+            1.45, 1.45, 1.45,
+            isKamikaze ? 1.0 : 0.85, isKamikaze ? 0.35 : 0.95, isKamikaze ? 0.28 : 1.0, 1,
+            0, isKamikaze ? 1.0 : 0.7, 0.5, sd.hitFlash
+          );
+        }
+        batches.shieldDrone = { first: shieldDroneStart, count: instCount - shieldDroneStart };
 
         // 3B. HOMING MISSILES (3D Airframe oriented along velocity vector)
         const missileStart = instCount;
@@ -1694,7 +2063,7 @@
             const flashVal = side < 0 ? ms.bayFlashLeft : ms.bayFlashRight;
             const bayScale = 1.35 + flashVal * 1.45;
             transformAircraftPoint(
-              8.2 * side * 1.15, -1.15 * 1.15, 6.2 * 1.15,
+              MOTHERSHIP_HANGAR_BAY_X * side, MOTHERSHIP_HANGAR_BAY_Y, MOTHERSHIP_HANGAR_BAY_Z,
               ms.x, ms.y, ms.z,
               0, ms.pitch, ms.roll,
               this.tempVec3A
@@ -1708,6 +2077,42 @@
             );
           }
         }
+
+        // Mothership energy shield bubble, opacity driven by the surviving shield ring
+        const shieldDomeStart = instCount;
+        if (this.mothership && this.mothership.active) {
+          const ms = this.mothership;
+          const shielding = this.countShieldingDrones();
+          const shieldRatio = shielding / SHIELD_DRONE_COUNT;
+          if (shielding > 0 || ms.shieldFlash > 0) {
+            const shellAlpha = Math.min(0.18, 0.02 + shieldRatio * 0.11 + ms.shieldFlash * 0.10);
+            const shellBoost = 1.0 + ms.shieldFlash * 0.04;
+            pushInstance(
+              ms.x, ms.y, ms.z,
+              0, ms.pitch, this.time * 0.18,
+              SHIELD_DOME_RADIUS_X * shellBoost,
+              SHIELD_DOME_RADIUS_Y * shellBoost,
+              SHIELD_DOME_RADIUS_Z * shellBoost,
+              0.34, 0.86, 1.0, shellAlpha,
+              4.0, 0.12 + ms.shieldFlash * 1.1, 0, 0
+            );
+          }
+        }
+
+        // Player hull shield bubble projected by the allied swarm in shielder role
+        if (!this.gameOver && j.swarmRole === SWARM_ROLE_SHIELDER && j.shieldHp > 0) {
+          const playerShieldRatio = Math.max(0, Math.min(1, j.shieldHp / j.maxShieldHp));
+          const playerShellRadius = PLAYER_SHIELD_DOME_RADIUS * (1.0 + j.shieldFlash * 0.06);
+          pushInstance(
+            j.x, j.y + microBuffetY, j.z,
+            j.yaw, j.pitch, this.time * 0.9,
+            playerShellRadius, playerShellRadius, playerShellRadius,
+            0.30, 0.92, 1.0, 0.03 + playerShieldRatio * 0.10 + j.shieldFlash * 0.12,
+            4.0, 0.14 + j.shieldFlash * 1.2, 0, 0
+          );
+        }
+        batches.shieldDome = { first: shieldDomeStart, count: instCount - shieldDomeStart };
+
         batches.plume = { first: plumeStart, count: instCount - plumeStart };
 
         // 7. EXPLOSION PARTICLES & HIGH-SPEED AIR STREAM LINES

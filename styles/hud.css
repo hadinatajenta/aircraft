@@ -198,6 +198,34 @@
       background-color: #ff4630;
     }
 
+    .shield-tracker {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 3px;
+    }
+
+    .shield-tracker.hidden {
+      display: none;
+    }
+
+    .shield-tracker-fill {
+      height: 100%;
+      width: 100%;
+      background-color: #6be2ff;
+      transform-origin: left center;
+      transform: scaleX(1);
+      transition: transform 0.12s ease-out;
+    }
+
+    #shield-val.shield-up {
+      color: #6be2ff;
+    }
+
+    #shield-val.shield-down {
+      color: #ff4630;
+    }
+
     /* Minimal HUD Overlay */
     #hud {
       position: fixed;
@@ -549,6 +577,37 @@
       background: rgba(56, 189, 248, 0.55);
       transform: scale(0.93);
       box-shadow: 0 0 30px rgba(56, 189, 248, 0.7);
+    }
+
+    .touch-swarm-mode-btn {
+      position: absolute;
+      right: clamp(140px, 19vw, 156px);
+      bottom: clamp(190px, 24vh, 214px);
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: rgba(107, 226, 255, 0.16);
+      border: 1.5px solid rgba(107, 226, 255, 0.78);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      color: #eef8ff;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      touch-action: none;
+      box-shadow: 0 0 18px rgba(107, 226, 255, 0.22);
+      transition: transform 0.08s ease, background 0.08s ease;
+    }
+
+    .touch-swarm-mode-btn.active {
+      background: rgba(107, 226, 255, 0.5);
+      transform: scale(0.93);
+      box-shadow: 0 0 26px rgba(107, 226, 255, 0.65);
     }
 
     /* Pause Banner */
