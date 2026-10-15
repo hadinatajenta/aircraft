@@ -72,13 +72,24 @@
     const ARC_CHAIN_COUNT       = 2;
     const ARC_CHAIN_RANGE       = 36.0;
     const ARC_CHAIN_FACTOR      = 0.5;
+    const ARC_BEAM_MOTHERSHIP_DPS   = 170.0;
+    const ARC_BEAM_MOTHERSHIP_RANGE = 320.0;
     const EMP_COOLDOWN          = 14.0;
     const EMP_STUN_DURATION     = 2.5;
     const EMP_FALL_ACCEL        = 26.0;
     const EMP_KILL_Y            = -16.0;
     const EMP_SCORE             = 60;
-    const SHIELD_SKILL_DURATION = 8.0;
-    const SHIELD_SKILL_COOLDOWN = 12.0;
+    const ESCORT_COUNT              = 2;
+    const ESCORT_GUNNER_HP          = 70;
+    const ESCORT_GUARDIAN_HP        = 50;
+    const ESCORT_GUARDIAN_SHIELD    = 40;
+    const ESCORT_COOLDOWN           = 12.0;
+    const ESCORT_FIRE_INTERVAL      = 0.12;
+    const ESCORT_LASER_DAMAGE       = 2;
+    const ESCORT_LASER_SPEED        = 240.0;
+    const ESCORT_HIT_RADIUS_SQ      = 24.0;
+    const ESCORT_GUARD_RANGE        = 16.0;
+    const ESCORT_TARGET_RANGE       = 150.0;
 
     class SkystrikeSimulation {
       constructor() {
@@ -121,7 +132,7 @@
         this.projectiles = Array.from({ length: MAX_PROJECTILES }, () => ({
           active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
           pitch: 0, yaw: 0, life: 0, r: 1.0, g: 0.85, b: 0.45, isSwarm: false, isEnemy: false,
-          damage: 1
+          isEscort: false, damage: 1
         }));
 
         this.missiles = Array.from({ length: MAX_MISSILES }, () => ({
@@ -157,6 +168,14 @@
 
         this.speedLines = Array.from({ length: MAX_SPEEDLINES }, () => ({
           x: 0, y: 0, z: 0, len: 1
+        }));
+
+        this.escortDrones = Array.from({ length: ESCORT_COUNT }, (_, idx) => ({
+          active: false, slotIdx: idx, role: idx === 0 ? 'gunner' : 'guardian',
+          born: false, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
+          hp: 0, maxHp: idx === 0 ? ESCORT_GUNNER_HP : ESCORT_GUARDIAN_HP,
+          shieldHp: 0, maxShieldHp: idx === 0 ? 0 : ESCORT_GUARDIAN_SHIELD,
+          fireTimer: 0, muzzleFlash: 0, hitFlash: 0, shieldFlash: 0
         }));
 
         this.blasts = Array.from({ length: MAX_BLASTS }, () => ({
@@ -231,9 +250,9 @@
           shieldHp: 0,
           maxShieldHp: PLAYER_SHIELD_CAPACITY,
           shieldFlash: 0,
-          shieldTimer: 0,
-          shieldCooldown: 0,
           shieldTriggerCooldown: 0,
+          escortCooldown: 0,
+          arcMothershipTimer: 0,
           empCooldown: 0,
           empFlash: 0,
           arcBeam: false,
@@ -316,6 +335,17 @@
           sd.hitFlash = 0;
           sd.trailTimer = 0;
         }
+
+        for (const escort of this.escortDrones) {
+          escort.active = false;
+          escort.born = false;
+          escort.hp = 0;
+          escort.shieldHp = 0;
+          escort.hitFlash = 0;
+          escort.shieldFlash = 0;
+          escort.muzzleFlash = 0;
+        }
+        this.escortGuardActive = false;
 
         this.deployShieldRing();
 
@@ -454,15 +484,15 @@
         }
         if (this.swarmRoleBtnEl) this.swarmRoleBtnEl.classList.toggle('hidden', isArc);
         if (this.touchSwarmModeEl) this.touchSwarmModeEl.classList.toggle('hidden', isArc);
-        if (this.skillLabelEl) this.skillLabelEl.textContent = isArc ? 'EMP [Q] · SHLD [E]' : 'SWARM [E]';
+        if (this.skillLabelEl) this.skillLabelEl.textContent = isArc ? 'EMP [Q] · ESCORT [E]' : 'SWARM [E]';
         if (this.controlHintEl) {
           this.controlHintEl.textContent = isArc
-            ? 'STEER · SPACE ARC FIRE · Q EMP PULSE · E ENERGY SHIELD'
+            ? 'STEER · SPACE ARC BEAM · Q EMP PULSE · E ESCORT DRONES'
             : 'STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE';
         }
         if (this.controlSubhintEl) {
           this.controlSubhintEl.textContent = isArc
-            ? 'WASD / ARROWS STEER · SPACE ARC CANNON · Q EMP (DROPS EVERY ENEMY AHEAD) · E ENERGY SHIELD · P PAUSE · R RESTART'
+            ? 'WASD / ARROWS STEER · SPACE ARC BEAM · Q EMP (DROPS EVERY ENEMY AHEAD) · E ESCORT DRONES (RE-SUMMON HEALS) · P PAUSE · R RESTART'
             : 'WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART';
         }
       }
@@ -502,25 +532,144 @@
         this.updateHUD();
       }
 
-      raiseEnergyShield() {
+      summonEscorts() {
         const j = this.jet;
-        if (j.shieldTimer > 0 || j.shieldCooldown > 0) return;
-        j.shieldTimer = SHIELD_SKILL_DURATION;
-        j.shieldCooldown = SHIELD_SKILL_COOLDOWN;
-        j.shieldHp = j.maxShieldHp;
-        j.shieldFlash = 1.0;
+        if (j.escortCooldown > 0) return;
+        j.escortCooldown = ESCORT_COOLDOWN;
 
-        for (let i = 0; i < 12; i++) {
-          this.spawnTrailParticle(
-            j.x + (Math.random() - 0.5) * 3.0,
-            j.y + (Math.random() - 0.5) * 3.0,
-            j.z + (Math.random() - 0.5) * 3.0,
-            (Math.random() - 0.5) * 14.0, (Math.random() - 0.5) * 14.0, 8.0,
-            0.35, 0.92, 1.0, 0.55, 0.32
-          );
+        for (const escort of this.escortDrones) {
+          escort.active = true;
+          escort.hp = escort.maxHp;
+          escort.shieldHp = escort.maxShieldHp;
+          escort.hitFlash = 0;
+          escort.shieldFlash = 1.0;
+          escort.muzzleFlash = 0;
+          escort.fireTimer = Math.random() * 0.2;
+          if (!escort.born) {
+            escort.born = true;
+            escort.x = j.x;
+            escort.y = j.y;
+            escort.z = j.z + 2.0;
+          }
+          for (let k = 0; k < 5; k++) {
+            this.spawnTrailParticle(
+              escort.x, escort.y, escort.z,
+              (Math.random() - 0.5) * 10.0, (Math.random() - 0.5) * 10.0, 8.0,
+              0.40, 0.92, 1.0, 0.5, 0.3
+            );
+          }
         }
 
-        this.updateHealthBar();
+        this.updateHUD();
+      }
+
+      updateEscorts(dt) {
+        const j = this.jet;
+        const gunner = this.escortDrones[0];
+        const guardian = this.escortDrones[1];
+        const followLerp = 1.0 - Math.exp(-7.5 * dt);
+
+        for (const escort of this.escortDrones) {
+          if (!escort.active) continue;
+          const isGunner = escort.role === 'gunner';
+          transformAircraftPoint(
+            isGunner ? -5.2 : -8.4,
+            isGunner ? -1.0 : 0.4,
+            isGunner ? -1.4 : -3.6,
+            j.x, j.y, j.z,
+            j.yaw, j.pitch, j.roll,
+            this.tempVec3A
+          );
+          escort.x += (this.tempVec3A[0] - escort.x) * followLerp;
+          escort.y += (this.tempVec3A[1] - escort.y) * followLerp;
+          escort.z += (this.tempVec3A[2] - escort.z) * followLerp;
+          escort.yaw = j.yaw;
+          escort.pitch = j.pitch;
+          escort.roll = j.roll * 0.85;
+
+          if (escort.hitFlash > 0) escort.hitFlash = Math.max(0, escort.hitFlash - dt * 5.0);
+          if (escort.shieldFlash > 0) escort.shieldFlash = Math.max(0, escort.shieldFlash - dt * 3.0);
+          if (escort.muzzleFlash > 0) escort.muzzleFlash = Math.max(0, escort.muzzleFlash - dt);
+        }
+
+        this.escortGuardActive = false;
+        if (guardian.active && gunner.active && guardian.shieldHp > 0) {
+          const guardDistance = Math.hypot(gunner.x - guardian.x, gunner.y - guardian.y, gunner.z - guardian.z);
+          this.escortGuardActive = guardDistance <= ESCORT_GUARD_RANGE;
+        }
+
+        if (!gunner.active) return;
+        gunner.fireTimer -= dt;
+        if (gunner.fireTimer > 0) return;
+        gunner.fireTimer = ESCORT_FIRE_INTERVAL;
+        this.fireEscortLaser(gunner);
+      }
+
+      fireEscortLaser(gunner) {
+        const targetDrone = this.findArcBeamTarget(this.drones, gunner.x, gunner.y, gunner.z, -Math.sin(gunner.yaw), Math.sin(gunner.pitch), -Math.cos(gunner.yaw));
+        let target = targetDrone;
+        if (!target) target = this.findArcBeamTarget(this.shieldDrones, gunner.x, gunner.y, gunner.z, -Math.sin(gunner.yaw), Math.sin(gunner.pitch), -Math.cos(gunner.yaw));
+        if (!target) return;
+
+        let dirX = target.x - gunner.x;
+        let dirY = target.y - gunner.y;
+        let dirZ = target.z - gunner.z;
+        const length = Math.hypot(dirX, dirY, dirZ) || 1.0;
+        dirX /= length;
+        dirY /= length;
+        dirZ /= length;
+
+        const yaw = Math.atan2(-dirX, -dirZ);
+        const pitch = Math.asin(Math.max(-0.99, Math.min(0.99, dirY)));
+        gunner.yaw = yaw;
+        gunner.pitch = pitch;
+        gunner.muzzleFlash = 0.05;
+
+        for (let i = 0; i < MAX_PROJECTILES; i++) {
+          const p = this.projectiles[i];
+          if (p.active) continue;
+          p.active = true;
+          p.x = gunner.x + dirX * 2.0;
+          p.y = gunner.y + dirY * 2.0;
+          p.z = gunner.z + dirZ * 2.0;
+          p.vx = dirX * ESCORT_LASER_SPEED;
+          p.vy = dirY * ESCORT_LASER_SPEED;
+          p.vz = dirZ * ESCORT_LASER_SPEED;
+          p.yaw = yaw;
+          p.pitch = pitch;
+          p.life = 0.85;
+          p.r = 0.55;
+          p.g = 0.95;
+          p.b = 1.0;
+          p.isSwarm = false;
+          p.isEnemy = false;
+          p.isEscort = true;
+          p.damage = ESCORT_LASER_DAMAGE;
+          break;
+        }
+      }
+
+      applyEscortDamage(escort, amount, hitX, hitY, hitZ) {
+        if (!escort.active) return;
+
+        const guardian = this.escortDrones[1];
+        if (escort.role === 'gunner' && this.escortGuardActive && guardian.shieldHp > 0) {
+          const absorbed = Math.min(guardian.shieldHp, amount);
+          guardian.shieldHp -= absorbed;
+          guardian.shieldFlash = 1.0;
+          amount -= absorbed;
+          this.spawnTrailParticle(hitX, hitY, hitZ, 0, 0, 0, 0.55, 0.92, 1.0, 0.42, 0.22);
+          if (amount <= 0) return;
+        }
+
+        escort.hp -= amount;
+        escort.hitFlash = 1.0;
+        if (escort.hp > 0) return;
+
+        escort.active = false;
+        this.spawnBlast(escort.x, escort.y, escort.z, 8.0, 0.5, 0.9, 1.0);
+        this.spawnExplosion(escort.x, escort.y, escort.z, 24, 1.2);
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.5, this.cam.shake + 0.16);
         this.updateHUD();
       }
 
@@ -700,6 +849,7 @@
             }
             p.isSwarm = true;
             p.isEnemy = false;
+            p.isEscort = false;
             p.damage = 1;
             break;
           }
@@ -739,6 +889,7 @@
               p.active = true;
               p.isSwarm = false;
               p.isEnemy = true;
+              p.isEscort = false;
               p.damage = 1;
               p.x = muzzleX;
               p.y = muzzleY;
@@ -854,6 +1005,7 @@
               p.b = 0.45;
               p.isSwarm = false;
               p.isEnemy = false;
+              p.isEscort = false;
               p.damage = 1;
               break;
             }
@@ -911,6 +1063,36 @@
         j.muzzleFlashTimer = 0.05;
 
         if (!primary) {
+          const ms = this.mothership;
+          if (ms && ms.active) {
+            const mdx = ms.x - j.x;
+            const mdy = ms.y - j.y;
+            const mdz = ms.z - j.z;
+            const distance = Math.hypot(mdx, mdy, mdz) || 1.0;
+            const aim = (mdx * dirX + mdy * dirY + mdz * dirZ) / distance;
+            const reach = distance - 22.0;
+            if (aim > ARC_BEAM_CONE && reach > 2.0 && reach < ARC_BEAM_MOTHERSHIP_RANGE) {
+              j.arcHit = true;
+              j.arcChainA = false;
+              j.arcChainB = false;
+              j.arcEndX = j.x + dirX * reach;
+              j.arcEndY = j.y + dirY * reach;
+              j.arcEndZ = j.z + dirZ * reach;
+
+              j.arcMothershipTimer -= dt;
+              if (j.arcMothershipTimer <= 0) {
+                const tick = 0.08;
+                j.arcMothershipTimer = tick;
+                if (this.isMothershipShielded()) {
+                  this.blockMothershipHit(j.arcEndX, j.arcEndY, j.arcEndZ);
+                } else {
+                  this.damageMothership(ARC_BEAM_MOTHERSHIP_DPS * tick, j.arcEndX, j.arcEndY, j.arcEndZ, true);
+                }
+              }
+              return;
+            }
+          }
+
           j.arcHit = false;
           j.arcChainA = false;
           j.arcChainB = false;
@@ -1154,12 +1336,13 @@
           if (this.isArcAircraft()) {
             if (j.empCooldown > 0) {
               this.swarmEl.textContent = `EMP ${j.empCooldown.toFixed(1)}S`;
-            } else if (j.shieldTimer > 0) {
-              this.swarmEl.textContent = `SHLD ${j.shieldTimer.toFixed(1)}S`;
-            } else if (j.shieldCooldown > 0) {
-              this.swarmEl.textContent = `CD ${j.shieldCooldown.toFixed(1)}S`;
+            } else if (j.escortCooldown > 0) {
+              this.swarmEl.textContent = `CD ${j.escortCooldown.toFixed(1)}S`;
+            } else if (this.escortDrones[0].active) {
+              const gunnerPercent = Math.max(0, Math.round((this.escortDrones[0].hp / this.escortDrones[0].maxHp) * 100));
+              this.swarmEl.textContent = `ESC ${gunnerPercent}%`;
             } else {
-              this.swarmEl.textContent = 'EMP READY';
+              this.swarmEl.textContent = 'READY';
             }
           } else if (j.swarmTimer > 0) {
             this.swarmEl.textContent = `ACT ${j.swarmTimer.toFixed(1)}S`;
@@ -1268,7 +1451,6 @@
         j.arcHit = false;
         j.arcChainA = false;
         j.arcChainB = false;
-        j.shieldTimer = 0;
         j.shieldHp = 0;
 
         this.clearInputState();
@@ -1426,7 +1608,10 @@
           if (j.fireCooldown > 0) j.fireCooldown -= dt;
           if (j.missileCooldown > 0) j.missileCooldown -= dt;
           if (j.swarmTriggerCooldown > 0) j.swarmTriggerCooldown -= dt;
-          if (j.shieldCooldown > 0) j.shieldCooldown = Math.max(0, j.shieldCooldown - dt);
+          if (j.escortCooldown > 0) {
+            j.escortCooldown = Math.max(0, j.escortCooldown - dt);
+            this.updateHUD();
+          }
           if (j.empCooldown > 0) {
             j.empCooldown = Math.max(0, j.empCooldown - dt);
             this.updateHUD();
@@ -1434,14 +1619,6 @@
           if (j.swarmCooldown > 0) {
             j.swarmCooldown = Math.max(0, j.swarmCooldown - dt);
             this.updateHUD();
-          }
-          if (j.shieldTimer > 0) {
-            j.shieldTimer = Math.max(0, j.shieldTimer - dt);
-            if (j.shieldTimer <= 0) {
-              j.shieldHp = 0;
-              this.updateHealthBar();
-              this.updateHUD();
-            }
           }
           if (j.muzzleFlashTimer > 0) j.muzzleFlashTimer = Math.max(0, j.muzzleFlashTimer - dt);
 
@@ -1468,7 +1645,7 @@
           const wantsSwarm = this.keys.swarm || this.touchInput.swarm;
           if (isArc) {
             if (wantsSwarm && j.shieldTriggerCooldown <= 0) {
-              this.raiseEnergyShield();
+              this.summonEscorts();
               j.shieldTriggerCooldown = 0.4;
             }
           } else if (wantsSwarm && j.swarmTriggerCooldown <= 0 && j.swarmTimer <= 0 && j.swarmCooldown <= 0) {
@@ -1476,6 +1653,8 @@
           }
           if (j.shieldTriggerCooldown > 0) j.shieldTriggerCooldown = Math.max(0, j.shieldTriggerCooldown - dt);
         }
+
+        if (this.isArcAircraft()) this.updateEscorts(dt);
 
         // 4B. Update Allied Swarm Drones (Attacker Barrage or Shielder Bubble Formation)
         if (j.swarmTimer > 0) {
@@ -1571,12 +1750,27 @@
           // Enemy gunship bolts only threaten the player aircraft
           if (p.isEnemy) {
             if (!this.gameOver) {
-              const boltX = p.x - j.x;
-              const boltY = p.y - j.y;
-              const boltZ = p.z - j.z;
-              if (boltX * boltX + boltY * boltY + boltZ * boltZ < 9.0) {
-                p.active = false;
-                this.applyJetDamage(ENEMY_BULLET_DAMAGE, p.x, p.y, p.z, 0.5);
+              let consumed = false;
+              for (const escort of this.escortDrones) {
+                if (!escort.active) continue;
+                const ex = p.x - escort.x;
+                const ey = p.y - escort.y;
+                const ez = p.z - escort.z;
+                if (ex * ex + ey * ey + ez * ez < ESCORT_HIT_RADIUS_SQ) {
+                  p.active = false;
+                  this.applyEscortDamage(escort, ENEMY_BULLET_DAMAGE, p.x, p.y, p.z);
+                  consumed = true;
+                  break;
+                }
+              }
+              if (!consumed) {
+                const boltX = p.x - j.x;
+                const boltY = p.y - j.y;
+                const boltZ = p.z - j.z;
+                if (boltX * boltX + boltY * boltY + boltZ * boltZ < 9.0) {
+                  p.active = false;
+                  this.applyJetDamage(ENEMY_BULLET_DAMAGE, p.x, p.y, p.z, 0.5);
+                }
               }
             }
             continue;
@@ -2066,18 +2260,23 @@
         }
       }
 
-      damageMothership(amount, hitX, hitY, hitZ) {
+      damageMothership(amount, hitX, hitY, hitZ, isContinuous) {
         const ms = this.mothership;
         if (!ms || !ms.active) return;
 
         ms.hp -= amount;
         ms.hitFlash = 1.0;
         this.score += amount * 20;
-        this.spawnExplosion(hitX, hitY, hitZ, 8, 0.75);
 
-        this.pipperEl?.classList.add('hit-confirm');
-        clearTimeout(this._hitConfirmTimer);
-        this._hitConfirmTimer = setTimeout(() => this.pipperEl?.classList.remove('hit-confirm'), 90);
+        if (isContinuous) {
+          ms.beamTick = (ms.beamTick || 0) + 1;
+          if (ms.beamTick % 8 === 0) this.spawnExplosion(hitX, hitY, hitZ, 5, 0.7);
+        } else {
+          this.spawnExplosion(hitX, hitY, hitZ, 8, 0.75);
+          this.pipperEl?.classList.add('hit-confirm');
+          clearTimeout(this._hitConfirmTimer);
+          this._hitConfirmTimer = setTimeout(() => this.pipperEl?.classList.remove('hit-confirm'), 90);
+        }
 
         if (ms.hp <= 0) {
           ms.active = false;
@@ -2393,6 +2592,27 @@
 
         // 4. ALLIED SWARM MINI-DRONES (6 Wingman UAVs deployed on KeyE)
         const swarmStart = instCount;
+        for (const escort of this.escortDrones) {
+          if (!escort.active) continue;
+          const isGunner = escort.role === 'gunner';
+          pushInstance(
+            escort.x, escort.y, escort.z,
+            escort.yaw, escort.pitch, escort.roll,
+            1.05, 1.05, 1.05,
+            isGunner ? 0.35 : 0.70, isGunner ? 0.92 : 0.58, 1.0, 1,
+            0, 0.9, 0.5, escort.hitFlash
+          );
+          if (escort.muzzleFlash > 0) {
+            transformAircraftPoint(0, 0, -1.55, escort.x, escort.y, escort.z, escort.yaw, escort.pitch, escort.roll, this.tempVec3B);
+            pushInstance(
+              this.tempVec3B[0], this.tempVec3B[1], this.tempVec3B[2],
+              escort.yaw + Math.PI, -escort.pitch, this.time * 30.0,
+              0.62, 0.62, 0.55,
+              0.35, 0.95, 1.00, 0.95,
+              4.0, 2.2, 0, 0
+            );
+          }
+        }
         for (let i = 0; i < ALLIED_SWARM_COUNT; i++) {
           const sd = this.swarmDrones[i];
           if (!sd.active) continue;
@@ -2664,8 +2884,19 @@
         }
         batches.shieldPanel = { first: shieldPanelStart, count: instCount - shieldPanelStart };
 
-        // Player shield halo: an open ring so the aircraft and the forward view stay unobstructed
+        // Guardian bubble covering the gunner escort
         const shieldRingStart = instCount;
+        if (!this.gameOver && this.escortGuardActive) {
+          const gunner = this.escortDrones[0];
+          const guardRatio = Math.max(0, Math.min(1, this.escortDrones[1].shieldHp / ESCORT_GUARDIAN_SHIELD));
+          pushInstance(
+            gunner.x, gunner.y, gunner.z,
+            gunner.yaw, gunner.pitch, 0,
+            3.4, 3.4, 3.4,
+            0.62, 0.72, 1.0, 0.14 + guardRatio * 0.16,
+            4.0, 0.30, 0, 0
+          );
+        }
         if (!this.gameOver && j.shieldHp > 0) {
           const playerShieldRatio = Math.max(0, Math.min(1, j.shieldHp / j.maxShieldHp));
           pushInstance(
