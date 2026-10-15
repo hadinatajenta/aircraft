@@ -65,6 +65,26 @@
 
     const AIRCRAFT_SKYSTRIKE    = 'skystrike';
     const AIRCRAFT_VOLTARC      = 'voltarc';
+    const AIRCRAFT_BLACKBIRD    = 'blackbird';
+    const RAPTOR_COUNT          = 3;
+    const RAPTOR_DURATION       = 8.0;
+    const RAPTOR_COOLDOWN       = 10.0;
+    const RAPTOR_BOMB_INTERVAL  = 1.15;
+    const MAX_BOMBS             = 12;
+    const BOMB_SPEED            = 96.0;
+    const BOMB_LIFE             = 1.5;
+    const BOMB_DAMAGE           = 26;
+    const BOMB_BLAST_RADIUS     = 21.0;
+    const BOMB_BLAST_RADIUS_SQ  = 441.0;
+    const MICRO_SALVO           = 6;
+    const MICRO_TARGETS         = 3;
+    const MICRO_DAMAGE          = 4;
+    const MICRO_SPEED           = 155.0;
+    const MICRO_LIFE            = 2.4;
+    const MICRO_COOLDOWN        = 1.0;
+    const MAX_MICRO_MISSILES    = 18;
+    const MICRO_HIT_RADIUS_SQ   = 15.0;
+    const MICRO_SCORE           = 30;
     const ARC_BEAM_RANGE        = 135.0;
     const ARC_BEAM_CONE         = 0.90;
     const ARC_BEAM_DPS          = 42.0;
@@ -184,6 +204,21 @@
           x: 0, y: 0, z: 0, len: 1
         }));
 
+        this.raptors = Array.from({ length: RAPTOR_COUNT }, (_, idx) => ({
+          active: false, slotIdx: idx, x: 0, y: 0, z: 0,
+          yaw: 0, pitch: 0, roll: 0, bombTimer: 0, muzzleFlash: 0
+        }));
+
+        this.bombs = Array.from({ length: MAX_BOMBS }, () => ({
+          active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+          yaw: 0, pitch: 0, life: 0, trailTimer: 0, spin: 0
+        }));
+
+        this.microMissiles = Array.from({ length: MAX_MICRO_MISSILES }, () => ({
+          active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+          yaw: 0, pitch: 0, roll: 0, speed: 0, life: 0, targetIdx: -1, targetShield: false, trailTimer: 0
+        }));
+
         this.eliteRockets = Array.from({ length: MAX_ELITE_ROCKETS }, () => ({
           active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
           yaw: 0, pitch: 0, roll: 0, hp: 0, maxHp: ELITE_ROCKET_HP, life: 0, trailTimer: 0, hitFlash: 0
@@ -271,6 +306,9 @@
           shieldFlash: 0,
           shieldTriggerCooldown: 0,
           escortCooldown: 0,
+          raptorTimer: 0,
+          raptorCooldown: 0,
+          microCooldown: 0,
           arcMothershipTimer: 0,
           empCooldown: 0,
           empFlash: 0,
@@ -311,6 +349,12 @@
         for (const pt of this.particles) pt.active = false;
         for (const blast of this.blasts) blast.active = false;
         for (const rocket of this.eliteRockets) rocket.active = false;
+        for (const raptor of this.raptors) {
+          raptor.active = false;
+          raptor.bombTimer = 0;
+        }
+        for (const bomb of this.bombs) bomb.active = false;
+        for (const micro of this.microMissiles) micro.active = false;
         for (const d of this.drones) d.active = false;
         for (const sd of this.swarmDrones) {
           sd.active = false;
@@ -475,8 +519,16 @@
         return this.jet.aircraftId === AIRCRAFT_VOLTARC;
       }
 
+      isBlackbirdAircraft() {
+        return this.jet.aircraftId === AIRCRAFT_BLACKBIRD;
+      }
+
+      hasOwnSwarm() {
+        return this.jet.aircraftId === AIRCRAFT_SKYSTRIKE;
+      }
+
       selectAircraft(aircraftId) {
-        if (aircraftId !== AIRCRAFT_SKYSTRIKE && aircraftId !== AIRCRAFT_VOLTARC) return;
+        if (aircraftId !== AIRCRAFT_SKYSTRIKE && aircraftId !== AIRCRAFT_VOLTARC && aircraftId !== AIRCRAFT_BLACKBIRD) return;
         this.jet.aircraftId = aircraftId;
         this.syncAircraftUI();
       }
@@ -502,18 +554,24 @@
           card.classList.toggle('selected', selected);
           card.setAttribute('aria-pressed', selected ? 'true' : 'false');
         }
-        if (this.swarmRoleBtnEl) this.swarmRoleBtnEl.classList.toggle('hidden', isArc);
-        if (this.touchSwarmModeEl) this.touchSwarmModeEl.classList.toggle('hidden', isArc);
-        if (this.skillLabelEl) this.skillLabelEl.textContent = isArc ? 'EMP [Q] · ESCORT [E]' : 'SWARM [E]';
+        const isBlackbird = this.isBlackbirdAircraft();
+        const hasSwarm = isArc === false && isBlackbird === false;
+        if (this.swarmRoleBtnEl) this.swarmRoleBtnEl.classList.toggle('hidden', !hasSwarm);
+        if (this.touchSwarmModeEl) this.touchSwarmModeEl.classList.toggle('hidden', !hasSwarm);
+        if (this.skillLabelEl) {
+          this.skillLabelEl.textContent = isBlackbird
+            ? 'MICRO [Q] · RAPTORS [E]'
+            : (isArc ? 'EMP [Q] · ESCORT [E]' : 'SWARM [E]');
+        }
         if (this.controlHintEl) {
-          this.controlHintEl.textContent = isArc
-            ? 'STEER · SPACE ARC BEAM · Q EMP PULSE · E ESCORT DRONES'
-            : 'STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE';
+          if (isBlackbird) this.controlHintEl.textContent = 'STEER · SPACE FIRE · Q MICRO MISSILES · E RAPTOR BOMBERS';
+          else if (isArc) this.controlHintEl.textContent = 'STEER · SPACE ARC BEAM · Q EMP PULSE · E ESCORT DRONES';
+          else this.controlHintEl.textContent = 'STEER · SPACE FIRE · Q MISSILE · E SWARM · F SWARM MODE';
         }
         if (this.controlSubhintEl) {
-          this.controlSubhintEl.textContent = isArc
-            ? 'WASD / ARROWS STEER · SPACE ARC BEAM · Q EMP (DROPS EVERY ENEMY AHEAD) · E ESCORT DRONES (RE-SUMMON HEALS) · P PAUSE · R RESTART'
-            : 'WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART';
+          if (isBlackbird) this.controlSubhintEl.textContent = 'WASD / ARROWS STEER · SPACE FIRE · Q MICRO MISSILE SALVO AT THREE TARGETS · E THREE RAPTOR BOMBERS · P PAUSE · R RESTART';
+          else if (isArc) this.controlSubhintEl.textContent = 'WASD / ARROWS STEER · SPACE ARC BEAM · Q EMP (DROPS EVERY ENEMY AHEAD) · E ESCORT DRONES (RE-SUMMON HEALS) · P PAUSE · R RESTART';
+          else this.controlSubhintEl.textContent = 'WASD / ARROWS STEER · SPACE FIRE · Q HOMING MISSILE · E DRONE SWARM · F SWARM SHIELDER / ATTACKER · P PAUSE · R RESTART';
         }
       }
 
@@ -938,6 +996,342 @@
         }
 
         gunship.muzzleFlash = 0.11;
+      }
+
+      deployRaptors() {
+        const j = this.jet;
+        if (j.raptorCooldown > 0 || j.raptorTimer > 0) return;
+        j.raptorTimer = RAPTOR_DURATION;
+        j.raptorCooldown = RAPTOR_COOLDOWN;
+
+        for (const raptor of this.raptors) {
+          raptor.active = true;
+          raptor.x = j.x;
+          raptor.y = j.y;
+          raptor.z = j.z + 2.0;
+          raptor.yaw = j.yaw;
+          raptor.pitch = j.pitch;
+          raptor.roll = j.roll;
+          raptor.bombTimer = 0.35 + raptor.slotIdx * 0.35;
+          raptor.muzzleFlash = 0;
+        }
+
+        for (let k = 0; k < 10; k++) {
+          this.spawnTrailParticle(j.x, j.y, j.z, (Math.random() - 0.5) * 16.0, (Math.random() - 0.5) * 16.0, 12.0, 1.0, 0.72, 0.32, 0.5, 0.3);
+        }
+        this.updateHUD();
+      }
+
+      updateRaptors(dt) {
+        const j = this.jet;
+        const followLerp = 1.0 - Math.exp(-8.0 * dt);
+
+        for (const raptor of this.raptors) {
+          if (!raptor.active) continue;
+          const formX = (raptor.slotIdx - 1) * 6.4;
+          const formY = 0.9 + Math.abs(raptor.slotIdx - 1) * -0.5;
+          const formZ = -5.0 - Math.abs(raptor.slotIdx - 1) * 1.6;
+
+          transformAircraftPoint(formX, formY, formZ, j.x, j.y, j.z, j.yaw, j.pitch, j.roll, this.tempVec3A);
+          raptor.x += (this.tempVec3A[0] - raptor.x) * followLerp;
+          raptor.y += (this.tempVec3A[1] - raptor.y) * followLerp;
+          raptor.z += (this.tempVec3A[2] - raptor.z) * followLerp;
+          raptor.yaw = j.yaw;
+          raptor.pitch = j.pitch;
+          raptor.roll = j.roll * 0.9;
+
+          if (raptor.muzzleFlash > 0) raptor.muzzleFlash = Math.max(0, raptor.muzzleFlash - dt * 4.0);
+
+          raptor.bombTimer -= dt;
+          if (raptor.bombTimer <= 0) {
+            raptor.bombTimer = RAPTOR_BOMB_INTERVAL;
+            this.dropBomb(raptor);
+          }
+        }
+      }
+
+      dropBomb(raptor) {
+        const j = this.jet;
+        for (let i = 0; i < MAX_BOMBS; i++) {
+          const bomb = this.bombs[i];
+          if (bomb.active) continue;
+          bomb.active = true;
+          bomb.x = raptor.x;
+          bomb.y = raptor.y - 1.2;
+          bomb.z = raptor.z - 3.4;
+          bomb.vx = raptor.x < j.x ? 3.0 : -3.0;
+          bomb.vy = -3.0;
+          bomb.vz = -BOMB_SPEED;
+          bomb.yaw = 0;
+          bomb.pitch = -0.12;
+          bomb.life = BOMB_LIFE;
+          bomb.trailTimer = 0;
+          bomb.spin = Math.random() * Math.PI * 2;
+          raptor.muzzleFlash = 0.12;
+
+          for (let k = 0; k < 5; k++) {
+            this.spawnTrailParticle(bomb.x, bomb.y, bomb.z, (Math.random() - 0.5) * 8.0, (Math.random() - 0.5) * 8.0, -6.0, 1.0, 0.66, 0.28, 0.44, 0.26);
+          }
+          return;
+        }
+      }
+
+      detonateBomb(bomb) {
+        bomb.active = false;
+        this.spawnBlast(bomb.x, bomb.y, bomb.z, 15.0, 1.0, 0.62, 0.20);
+        this.spawnExplosion(bomb.x, bomb.y, bomb.z, 40, 1.6);
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.6, this.cam.shake + 0.22);
+
+        for (let i = 0; i < MAX_DRONES; i++) {
+          const d = this.drones[i];
+          if (!d.active) continue;
+          const dx = d.x - bomb.x;
+          const dy = d.y - bomb.y;
+          const dz = d.z - bomb.z;
+          if (dx * dx + dy * dy + dz * dz > BOMB_BLAST_RADIUS_SQ) continue;
+          d.hitFlash = 1.0;
+          d.hp -= BOMB_DAMAGE;
+          if (d.hp > 0) continue;
+          d.active = false;
+          this.score += d.enemyType === 2 ? ELITE_SCORE : (d.enemyType === 1 ? 250 : 100);
+          this.targetsDestroyed += 1;
+          this.spawnExplosion(d.x, d.y, d.z, 30, 1.3);
+          this.updateHUD();
+        }
+
+        for (let i = 0; i < SHIELD_DRONE_COUNT; i++) {
+          const sd = this.shieldDrones[i];
+          if (!sd.active) continue;
+          const dx = sd.x - bomb.x;
+          const dy = sd.y - bomb.y;
+          const dz = sd.z - bomb.z;
+          if (dx * dx + dy * dy + dz * dz > BOMB_BLAST_RADIUS_SQ) continue;
+          this.damageShieldDrone(sd, BOMB_DAMAGE, sd.x, sd.y, sd.z);
+        }
+
+        for (let i = 0; i < MAX_ELITE_ROCKETS; i++) {
+          const rocket = this.eliteRockets[i];
+          if (!rocket.active) continue;
+          const dx = rocket.x - bomb.x;
+          const dy = rocket.y - bomb.y;
+          const dz = rocket.z - bomb.z;
+          if (dx * dx + dy * dy + dz * dz > BOMB_BLAST_RADIUS_SQ) continue;
+          this.damageEliteRocket(rocket, BOMB_DAMAGE, rocket.x, rocket.y, rocket.z);
+        }
+      }
+
+      updateBombs(dt) {
+        for (let i = 0; i < MAX_BOMBS; i++) {
+          const bomb = this.bombs[i];
+          if (!bomb.active) continue;
+
+          bomb.life -= dt;
+          bomb.vy -= 5.0 * dt;
+          bomb.x += bomb.vx * dt;
+          bomb.y += bomb.vy * dt;
+          bomb.z += bomb.vz * dt;
+          bomb.spin += dt * 6.0;
+
+          bomb.trailTimer -= dt;
+          if (bomb.trailTimer <= 0) {
+            bomb.trailTimer = 0.03;
+            this.spawnTrailParticle(bomb.x, bomb.y, bomb.z, 0, 0, 0, 1.0, 0.62, 0.26, 0.46, 0.28);
+          }
+
+          let struck = false;
+          for (let k = 0; k < MAX_DRONES && !struck; k++) {
+            const d = this.drones[k];
+            if (!d.active) continue;
+            const dx = d.x - bomb.x;
+            const dy = d.y - bomb.y;
+            const dz = d.z - bomb.z;
+            const reach = d.enemyType === 2 ? 26.0 : (d.enemyType === 1 ? 17.0 : 10.0);
+            if (dx * dx + dy * dy + dz * dz < reach) struck = true;
+          }
+          for (let k = 0; k < SHIELD_DRONE_COUNT && !struck; k++) {
+            const sd = this.shieldDrones[k];
+            if (!sd.active) continue;
+            const dx = sd.x - bomb.x;
+            const dy = sd.y - bomb.y;
+            const dz = sd.z - bomb.z;
+            if (dx * dx + dy * dy + dz * dz < 12.0) struck = true;
+          }
+
+          if (struck || bomb.life <= 0 || bomb.z < -300.0) this.detonateBomb(bomb);
+        }
+      }
+
+      fireMicroSalvo() {
+        const j = this.jet;
+        const cp = Math.cos(j.pitch), sp = Math.sin(j.pitch);
+        const cy = Math.cos(j.yaw),   sy = Math.sin(j.yaw);
+        const dirX = -sy * cp;
+        const dirY = sp;
+        const dirZ = -cy * cp;
+
+        const targets = [];
+        for (let i = 0; i < MAX_DRONES && targets.length < MICRO_TARGETS; i++) {
+          const d = this.drones[i];
+          if (!d.active) continue;
+          const dx = d.x - j.x, dy = d.y - j.y, dz = d.z - j.z;
+          const distance = Math.hypot(dx, dy, dz);
+          if (distance < 2.0 || distance > ARC_BEAM_RANGE) continue;
+          if ((dx * dirX + dy * dirY + dz * dirZ) / distance < 0.70) continue;
+          targets.push({ shield: false, drone: d });
+        }
+        for (let i = 0; i < SHIELD_DRONE_COUNT && targets.length < MICRO_TARGETS; i++) {
+          const sd = this.shieldDrones[i];
+          if (!sd.active) continue;
+          const dx = sd.x - j.x, dy = sd.y - j.y, dz = sd.z - j.z;
+          const distance = Math.hypot(dx, dy, dz);
+          if (distance < 2.0 || distance > ARC_BEAM_RANGE) continue;
+          if ((dx * dirX + dy * dirY + dz * dirZ) / distance < 0.70) continue;
+          targets.push({ shield: true, drone: sd });
+        }
+
+        let launched = 0;
+        for (let shot = 0; shot < MICRO_SALVO; shot++) {
+          const assigned = targets.length > 0 ? targets[shot % targets.length] : null;
+          const side = shot % 2 === 0 ? -1 : 1;
+          transformAircraftPoint(1.6 * side, -0.35 - (shot % 3) * 0.45, -1.2, j.x, j.y, j.z, j.yaw, j.pitch, j.roll, this.tempVec3A);
+
+          for (let i = 0; i < MAX_MICRO_MISSILES; i++) {
+            const micro = this.microMissiles[i];
+            if (micro.active) continue;
+            micro.active = true;
+            micro.x = this.tempVec3A[0];
+            micro.y = this.tempVec3A[1];
+            micro.z = this.tempVec3A[2];
+            micro.speed = MICRO_SPEED;
+            micro.vx = dirX * MICRO_SPEED + (Math.random() - 0.5) * 18.0;
+            micro.vy = dirY * MICRO_SPEED + (Math.random() - 0.5) * 18.0 + 4.0;
+            micro.vz = dirZ * MICRO_SPEED;
+            micro.yaw = j.yaw;
+            micro.pitch = j.pitch;
+            micro.roll = 0;
+            micro.life = MICRO_LIFE;
+            micro.trailTimer = 0;
+            micro.targetShield = assigned ? assigned.shield : false;
+            micro.targetIdx = -1;
+            if (assigned) {
+              micro.targetIdx = assigned.shield
+                ? this.shieldDrones.indexOf(assigned.drone)
+                : this.drones.indexOf(assigned.drone);
+            }
+            launched++;
+            break;
+          }
+        }
+
+        if (launched > 0) j.muzzleFlashTimer = 0.06;
+        this.updateHUD();
+      }
+
+      updateMicroMissiles(dt) {
+        for (let i = 0; i < MAX_MICRO_MISSILES; i++) {
+          const micro = this.microMissiles[i];
+          if (!micro.active) continue;
+
+          micro.life -= dt;
+          if (micro.life <= 0 || micro.z < -320.0 || micro.z > 26.0) {
+            micro.active = false;
+            continue;
+          }
+
+          let target = null;
+          if (micro.targetIdx >= 0) {
+            target = micro.targetShield
+              ? (micro.targetIdx < SHIELD_DRONE_COUNT ? this.shieldDrones[micro.targetIdx] : null)
+              : (micro.targetIdx < MAX_DRONES ? this.drones[micro.targetIdx] : null);
+            if (target && !target.active) target = null;
+          }
+
+          if (target) {
+            let dx = target.x - micro.x;
+            let dy = target.y - micro.y;
+            let dz = target.z - micro.z;
+            const dLen = Math.hypot(dx, dy, dz) || 1.0;
+            dx /= dLen; dy /= dLen; dz /= dLen;
+
+            let curLen = Math.hypot(micro.vx, micro.vy, micro.vz) || 1.0;
+            let curX = micro.vx / curLen;
+            let curY = micro.vy / curLen;
+            let curZ = micro.vz / curLen;
+
+            const turn = 6.5 * dt;
+            curX += (dx - curX) * turn;
+            curY += (dy - curY) * turn;
+            curZ += (dz - curZ) * turn;
+            const newLen = Math.hypot(curX, curY, curZ) || 1.0;
+
+            micro.vx = (curX / newLen) * micro.speed;
+            micro.vy = (curY / newLen) * micro.speed;
+            micro.vz = (curZ / newLen) * micro.speed;
+          }
+
+          micro.x += micro.vx * dt;
+          micro.y += micro.vy * dt;
+          micro.z += micro.vz * dt;
+
+          const speed = Math.hypot(micro.vx, micro.vy, micro.vz) || 1.0;
+          micro.pitch = Math.asin(Math.max(-0.99, Math.min(0.99, micro.vy / speed)));
+          micro.yaw = Math.atan2(-micro.vx / speed, -micro.vz / speed);
+
+          micro.trailTimer -= dt;
+          if (micro.trailTimer <= 0) {
+            micro.trailTimer = 0.035;
+            this.spawnTrailParticle(micro.x, micro.y, micro.z, 0, 0, 0, 0.85, 0.90, 1.0, 0.32, 0.2);
+          }
+
+          let consumed = false;
+          for (let k = 0; k < MAX_DRONES && !consumed; k++) {
+            const d = this.drones[k];
+            if (!d.active) continue;
+            const dx = d.x - micro.x;
+            const dy = d.y - micro.y;
+            const dz = d.z - micro.z;
+            if (dx * dx + dy * dy + dz * dz > MICRO_HIT_RADIUS_SQ) continue;
+            consumed = true;
+            micro.active = false;
+            d.hitFlash = 1.0;
+            d.hp -= MICRO_DAMAGE;
+            this.spawnBlast(micro.x, micro.y, micro.z, 5.0, 1.0, 0.72, 0.30);
+            if (d.hp <= 0) {
+              d.active = false;
+              this.score += d.enemyType === 2 ? ELITE_SCORE : (d.enemyType === 1 ? 250 : 100);
+              this.targetsDestroyed += 1;
+              this.spawnExplosion(d.x, d.y, d.z, d.enemyType === 1 ? 42 : 26, d.enemyType === 1 ? 1.55 : 1.15);
+              if (!this.reducedMotion) this.cam.shake = Math.min(0.55, this.cam.shake + 0.18);
+            } else {
+              this.score += MICRO_SCORE;
+            }
+            this.updateHUD();
+          }
+
+          for (let k = 0; k < SHIELD_DRONE_COUNT && !consumed; k++) {
+            const sd = this.shieldDrones[k];
+            if (!sd.active) continue;
+            const dx = sd.x - micro.x;
+            const dy = sd.y - micro.y;
+            const dz = sd.z - micro.z;
+            if (dx * dx + dy * dy + dz * dz > MICRO_HIT_RADIUS_SQ) continue;
+            consumed = true;
+            micro.active = false;
+            this.damageShieldDrone(sd, MICRO_DAMAGE, micro.x, micro.y, micro.z);
+          }
+
+          for (let k = 0; k < MAX_ELITE_ROCKETS && !consumed; k++) {
+            const rocket = this.eliteRockets[k];
+            if (!rocket.active) continue;
+            const dx = rocket.x - micro.x;
+            const dy = rocket.y - micro.y;
+            const dz = rocket.z - micro.z;
+            if (dx * dx + dy * dy + dz * dz > MICRO_HIT_RADIUS_SQ) continue;
+            consumed = true;
+            micro.active = false;
+            this.damageEliteRocket(rocket, MICRO_DAMAGE, micro.x, micro.y, micro.z);
+          }
+        }
       }
 
       launchEliteRocket(helicopter) {
@@ -1422,7 +1816,17 @@
         if (this.targetsEl) this.targetsEl.textContent = String(this.targetsDestroyed).padStart(3, '0');
         if (this.swarmEl && this.jet) {
           const j = this.jet;
-          if (this.isArcAircraft()) {
+          if (this.isBlackbirdAircraft()) {
+            if (j.microCooldown > 0) {
+              this.swarmEl.textContent = `MSL ${j.microCooldown.toFixed(1)}S`;
+            } else if (j.raptorTimer > 0) {
+              this.swarmEl.textContent = `RPT ${j.raptorTimer.toFixed(1)}S`;
+            } else if (j.raptorCooldown > 0) {
+              this.swarmEl.textContent = `CD ${j.raptorCooldown.toFixed(1)}S`;
+            } else {
+              this.swarmEl.textContent = 'READY';
+            }
+          } else if (this.isArcAircraft()) {
             if (j.empCooldown > 0) {
               this.swarmEl.textContent = `EMP ${j.empCooldown.toFixed(1)}S`;
             } else if (j.escortCooldown > 0) {
@@ -1701,6 +2105,18 @@
             j.escortCooldown = Math.max(0, j.escortCooldown - dt);
             this.updateHUD();
           }
+          if (j.raptorCooldown > 0) {
+            j.raptorCooldown = Math.max(0, j.raptorCooldown - dt);
+            this.updateHUD();
+          }
+          if (j.raptorTimer > 0) {
+            j.raptorTimer = Math.max(0, j.raptorTimer - dt);
+            if (j.raptorTimer <= 0) {
+              for (const raptor of this.raptors) raptor.active = false;
+              this.updateHUD();
+            }
+          }
+          if (j.microCooldown > 0) j.microCooldown = Math.max(0, j.microCooldown - dt);
           if (j.empCooldown > 0) {
             j.empCooldown = Math.max(0, j.empCooldown - dt);
             this.updateHUD();
@@ -1720,11 +2136,17 @@
           }
           this.pipperEl?.classList.toggle('firing', wantsFire);
 
+          const isBlackbird = this.isBlackbirdAircraft();
           const wantsMissile = this.keys.missile || this.touchInput.missile;
           if (isArc) {
             if (wantsMissile && j.empCooldown <= 0) {
               this.triggerEmp();
               j.empCooldown = EMP_COOLDOWN;
+            }
+          } else if (isBlackbird) {
+            if (wantsMissile && j.microCooldown <= 0) {
+              this.fireMicroSalvo();
+              j.microCooldown = MICRO_COOLDOWN;
             }
           } else if (wantsMissile && j.missileCooldown <= 0) {
             this.launchHomingMissile();
@@ -1737,6 +2159,11 @@
               this.summonEscorts();
               j.shieldTriggerCooldown = 0.4;
             }
+          } else if (isBlackbird) {
+            if (wantsSwarm && j.shieldTriggerCooldown <= 0) {
+              this.deployRaptors();
+              j.shieldTriggerCooldown = 0.4;
+            }
           } else if (wantsSwarm && j.swarmTriggerCooldown <= 0 && j.swarmTimer <= 0 && j.swarmCooldown <= 0) {
             this.deployAlliedSwarm();
           }
@@ -1744,6 +2171,9 @@
         }
 
         if (this.isArcAircraft()) this.updateEscorts(dt);
+        if (this.isBlackbirdAircraft() && j.raptorTimer > 0) this.updateRaptors(dt);
+        this.updateBombs(dt);
+        this.updateMicroMissiles(dt);
 
         // 4B. Update Allied Swarm Drones (Attacker Barrage or Shielder Bubble Formation)
         if (j.swarmTimer > 0) {
@@ -2656,8 +3086,9 @@
         // 2. PLAYER FIGHTER AIRCRAFT (Rigid hard-surface airframe with subtle high-speed flight buffet)
         const microBuffetY = this.reducedMotion ? 0 : Math.sin(this.time * 18.0) * 0.025;
         const playerIsArc = this.isArcAircraft();
+        const playerIsBlackbird = this.isBlackbirdAircraft();
         const fighterStart = instCount;
-        if (!this.gameOver && !playerIsArc) {
+        if (!this.gameOver && !playerIsArc && !playerIsBlackbird) {
           pushInstance(
             j.x, j.y + microBuffetY, j.z,
             j.yaw, j.pitch, j.roll,
@@ -2665,6 +3096,18 @@
             1, 1, 1, 1,
             0, 0, 1.0, j.hullFlash
           );
+        }
+        if (!this.gameOver) {
+          for (const raptor of this.raptors) {
+            if (!raptor.active) continue;
+            pushInstance(
+              raptor.x, raptor.y, raptor.z,
+              raptor.yaw, raptor.pitch, raptor.roll,
+              0.92, 0.92, 0.92,
+              0.70, 0.76, 0.90, 1,
+              0, 0.2, 1.0, 0
+            );
+          }
         }
         batches.fighter = { first: fighterStart, count: instCount - fighterStart };
 
@@ -2679,6 +3122,18 @@
           );
         }
         batches.voltFighter = { first: voltFighterStart, count: instCount - voltFighterStart };
+
+        const blackbirdStart = instCount;
+        if (!this.gameOver && playerIsBlackbird) {
+          pushInstance(
+            j.x, j.y + microBuffetY, j.z,
+            j.yaw, j.pitch, j.roll,
+            1, 1, 1,
+            1, 1, 1, 1,
+            0, 0.3, 1.0, j.hullFlash
+          );
+        }
+        batches.blackbird = { first: blackbirdStart, count: instCount - blackbirdStart };
 
         // 2B. ENEMY AERIAL MOTHERSHIP CARRIER (Flagship in the distance)
         const mothershipStart = instCount;
@@ -2794,6 +3249,28 @@
             2.6, 2.6, 2.6,
             1.0, 0.55, 0.45, 1,
             0, 0.5, 0.5, rocket.hitFlash
+          );
+        }
+        for (let i = 0; i < MAX_BOMBS; i++) {
+          const bomb = this.bombs[i];
+          if (!bomb.active) continue;
+          pushInstance(
+            bomb.x, bomb.y, bomb.z,
+            bomb.yaw, bomb.pitch, bomb.spin,
+            1.7, 1.7, 1.7,
+            1.0, 0.62, 0.30, 1,
+            0, 0.6, 0.5, 0
+          );
+        }
+        for (let i = 0; i < MAX_MICRO_MISSILES; i++) {
+          const micro = this.microMissiles[i];
+          if (!micro.active) continue;
+          pushInstance(
+            micro.x, micro.y, micro.z,
+            micro.yaw, micro.pitch, micro.roll,
+            0.55, 0.55, 0.55,
+            0.80, 0.90, 1.0, 1,
+            0, 0.5, 0.5, 0
           );
         }
         batches.missile = { first: missileStart, count: instCount - missileStart };

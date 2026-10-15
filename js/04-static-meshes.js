@@ -1096,6 +1096,70 @@
       }
       const meshEliteRotor = gb.endMesh(rotorMarker);
 
+      const blackbirdMarker = gb.beginMesh();
+      {
+        const COL_BB_HULL  = [0.075, 0.082, 0.098];
+        const COL_BB_PANEL = [0.125, 0.135, 0.160];
+        const COL_BB_EDGE  = [0.220, 0.235, 0.270];
+        const COL_BB_NOSE  = [0.430, 0.280, 0.150];
+        const COL_BB_TRIM  = [0.620, 0.180, 0.110];
+        const COL_BB_HOT   = [1.000, 0.560, 0.200];
+        const COL_BB_GLASS = [0.120, 0.200, 0.260];
+
+        const b0 = makeFuselageRing(-7.00, 0.03,  0.00,  0.01, -0.04, 0.50);
+        const b1 = makeFuselageRing(-5.60, 0.22, -0.02,  0.06, -0.14, 0.55);
+        const b2 = makeFuselageRing(-4.00, 0.52, -0.02,  0.16, -0.26, 0.62);
+        const b3 = makeFuselageRing(-2.20, 0.86,  0.00,  0.28, -0.34, 0.70);
+        const b4 = makeFuselageRing(-0.20, 1.02,  0.02,  0.34, -0.36, 0.76);
+        const b5 = makeFuselageRing( 1.80, 0.94,  0.03,  0.30, -0.32, 0.78);
+        const b6 = makeFuselageRing( 4.20, 0.46,  0.02,  0.16, -0.18, 0.70);
+
+        gb.addLoftSection(b0, b1, COL_BB_NOSE, COL_BB_NOSE, COL_BB_HULL, MAT_METAL);
+        gb.addLoftSection(b1, b2, COL_BB_HULL, COL_BB_PANEL, COL_BB_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(b2, b3, COL_BB_HULL, COL_BB_GLASS, COL_BB_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(b3, b4, COL_BB_PANEL, COL_BB_HULL, COL_BB_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(b4, b5, COL_BB_HULL, COL_BB_PANEL, COL_BB_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(b5, b6, COL_BB_PANEL, COL_BB_TRIM, COL_BB_HULL, MAT_METAL);
+
+        gb.addSymmetricAirfoil(
+          [0.90, -0.02, -1.60],
+          [0.90, -0.02,  3.30],
+          0.09,
+          [6.00, -0.10,  2.60],
+          [6.00, -0.10,  4.05],
+          0.028,
+          COL_BB_HULL,
+          COL_BB_EDGE,
+          COL_BB_TRIM,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        for (const sign of [-1, 1]) {
+          addCylinderZ(2.55 * sign, -0.06, -1.15, 4.25, 0.30, 0.26, 8, COL_BB_PANEL, MAT_METAL);
+          addCylinderZ(2.55 * sign, -0.06, -1.55, -1.10, 0.14, 0.30, 8, COL_BB_EDGE, MAT_METAL);
+          addCylinderZ(2.55 * sign, -0.06, 4.20, 4.62, 0.24, 0.15, 8, COL_BB_HOT, MAT_EMISSIVE);
+          addCylinderZ(2.55 * sign, -0.06, -0.30, 2.10, 0.09, 0.09, 5, COL_BB_TRIM, MAT_ACCENT);
+        }
+
+        gb.addSymmetricAirfoil(
+          [2.20, 0.22, 2.10],
+          [2.20, 0.20, 4.05],
+          0.05,
+          [3.35, 1.45, 3.35],
+          [3.32, 1.42, 4.35],
+          0.022,
+          COL_BB_PANEL,
+          COL_BB_HULL,
+          COL_BB_TRIM,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        addCylinderZ(0.0, 0.34, -2.90, -1.20, 0.10, 0.24, 6, COL_BB_GLASS, MAT_CANOPY);
+      }
+      const meshBlackbird = gb.endMesh(blackbirdMarker);
+
       return {
         vertexData: new Float32Array(gb.vertices),
         indexData: new Uint32Array(gb.indices),
@@ -1118,7 +1182,8 @@
           voltFighter: meshVoltFighter,
           lightningBolt: meshLightningBolt,
           eliteHelicopter: meshEliteHelicopter,
-          eliteRotor: meshEliteRotor
+          eliteRotor: meshEliteRotor,
+          blackbird: meshBlackbird
         }
       };
     }

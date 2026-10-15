@@ -12,7 +12,7 @@
     <div class="hangar-panel">
       <span class="error-tag">AIRCRAFT SELECT</span>
       <h1 id="hangar-title">Choose your airframe</h1>
-      <p>Two airframes are available. Cannon, special skill on Q, and utility skill on E differ between them.</p>
+      <p>Three airframes are available. Cannon, special skill on Q, and utility skill on E differ between them.</p>
       <div class="hangar-grid">
         <button type="button" class="hangar-card selected" data-aircraft="skystrike" aria-pressed="true">
           <span class="hangar-card-name">F/A-31 SKYSTRIKE</span>
@@ -23,6 +23,11 @@
           <span class="hangar-card-name">VX-9 VOLTARC</span>
           <span class="hangar-card-role">Electric</span>
           <span class="hangar-card-desc">Arc lightning cannon. EMP pulse on Q that paralyzes every enemy ahead and drops them out of the sky. Energy shield on E.</span>
+        </button>
+        <button type="button" class="hangar-card" data-aircraft="blackbird" aria-pressed="false">
+          <span class="hangar-card-name">SR-77 BLACKBIRD</span>
+          <span class="hangar-card-role">Strategic</span>
+          <span class="hangar-card-desc">Long dark delta. Q fires a six missile micro salvo across up to three targets ahead, every second. E calls three F-22 raptor bombers that carpet the road ahead with bombs.</span>
         </button>
       </div>
       <button id="launch-btn" class="hud-btn is-primary" type="button">LAUNCH</button>
