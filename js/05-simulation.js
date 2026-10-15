@@ -65,11 +65,15 @@
 
     const AIRCRAFT_SKYSTRIKE    = 'skystrike';
     const AIRCRAFT_VOLTARC      = 'voltarc';
-    const ARC_BOLT_SPEED        = 265.0;
-    const ARC_BOLT_DAMAGE       = 2;
-    const ARC_FIRE_COOLDOWN     = 0.115;
+    const ARC_BEAM_RANGE        = 135.0;
+    const ARC_BEAM_CONE         = 0.90;
+    const ARC_BEAM_DPS          = 42.0;
+    const ARC_BEAM_SEGMENTS     = 11;
+    const ARC_CHAIN_COUNT       = 2;
+    const ARC_CHAIN_RANGE       = 36.0;
+    const ARC_CHAIN_FACTOR      = 0.5;
     const EMP_COOLDOWN          = 14.0;
-    const EMP_STUN_DURATION     = 4.5;
+    const EMP_STUN_DURATION     = 2.5;
     const EMP_FALL_ACCEL        = 26.0;
     const EMP_KILL_Y            = -16.0;
     const EMP_SCORE             = 60;
@@ -117,7 +121,7 @@
         this.projectiles = Array.from({ length: MAX_PROJECTILES }, () => ({
           active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
           pitch: 0, yaw: 0, life: 0, r: 1.0, g: 0.85, b: 0.45, isSwarm: false, isEnemy: false,
-          isArc: false, damage: 1
+          damage: 1
         }));
 
         this.missiles = Array.from({ length: MAX_MISSILES }, () => ({
@@ -232,7 +236,19 @@
           shieldTriggerCooldown: 0,
           empCooldown: 0,
           empFlash: 0,
-          empPulseTimer: 0,
+          arcBeam: false,
+          arcEndX: 0,
+          arcEndY: 0,
+          arcEndZ: 0,
+          arcHit: false,
+          arcChainA: false,
+          arcChainAX: 0,
+          arcChainAY: 0,
+          arcChainAZ: 0,
+          arcChainB: false,
+          arcChainBX: 0,
+          arcChainBY: 0,
+          arcChainBZ: 0,
           aircraftId: this.jet ? this.jet.aircraftId : AIRCRAFT_SKYSTRIKE
         };
 
@@ -684,7 +700,6 @@
             }
             p.isSwarm = true;
             p.isEnemy = false;
-            p.isArc = false;
             p.damage = 1;
             break;
           }
@@ -724,7 +739,6 @@
               p.active = true;
               p.isSwarm = false;
               p.isEnemy = true;
-              p.isArc = false;
               p.damage = 1;
               p.x = muzzleX;
               p.y = muzzleY;
@@ -804,10 +818,6 @@
 
       fireProjectiles() {
         const j = this.jet;
-        if (this.isArcAircraft()) {
-          this.fireArcBolts();
-          return;
-        }
         // Forward aim unit vector from aircraft yaw & pitch
         const cp = Math.cos(j.pitch), sp = Math.sin(j.pitch);
         const cy = Math.cos(j.yaw),   sy = Math.sin(j.yaw);
@@ -844,7 +854,6 @@
               p.b = 0.45;
               p.isSwarm = false;
               p.isEnemy = false;
-              p.isArc = false;
               p.damage = 1;
               break;
             }
@@ -854,7 +863,27 @@
         j.muzzleFlashTimer = 0.055;
       }
 
-      fireArcBolts() {
+      findArcBeamTarget(list, originX, originY, originZ, dirX, dirY, dirZ) {
+        let best = null;
+        let bestDistance = Infinity;
+        for (const target of list) {
+          if (!target.active) continue;
+          const dx = target.x - originX;
+          const dy = target.y - originY;
+          const dz = target.z - originZ;
+          const distance = Math.hypot(dx, dy, dz);
+          if (distance < 1.0 || distance > ARC_BEAM_RANGE) continue;
+          const aim = (dx * dirX + dy * dirY + dz * dirZ) / distance;
+          if (aim < ARC_BEAM_CONE) continue;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = target;
+          }
+        }
+        return best;
+      }
+
+      updateArcBeam(dt) {
         const j = this.jet;
         const cp = Math.cos(j.pitch), sp = Math.sin(j.pitch);
         const cy = Math.cos(j.yaw),   sy = Math.sin(j.yaw);
@@ -862,39 +891,116 @@
         const dirY = sp;
         const dirZ = -cy * cp;
 
-        for (const side of [-1, 1]) {
-          transformAircraftPoint(
-            5.34 * side, 0.30, 0.30,
-            j.x, j.y, j.z,
-            j.yaw, j.pitch, j.roll,
-            this.tempVec3A
-          );
+        const droneTarget = this.findArcBeamTarget(this.drones, j.x, j.y, j.z, dirX, dirY, dirZ);
+        const shieldTarget = this.findArcBeamTarget(this.shieldDrones, j.x, j.y, j.z, dirX, dirY, dirZ);
 
-          for (let i = 0; i < MAX_PROJECTILES; i++) {
-            const p = this.projectiles[i];
-            if (p.active) continue;
-            p.active = true;
-            p.x = this.tempVec3A[0];
-            p.y = this.tempVec3A[1];
-            p.z = this.tempVec3A[2];
-            p.vx = dirX * ARC_BOLT_SPEED + j.vx * 0.12;
-            p.vy = dirY * ARC_BOLT_SPEED + j.vy * 0.12;
-            p.vz = dirZ * ARC_BOLT_SPEED;
-            p.yaw = j.yaw;
-            p.pitch = j.pitch;
-            p.life = 1.15;
-            p.r = 0.42;
-            p.g = 0.86;
-            p.b = 1.0;
-            p.isSwarm = false;
-            p.isEnemy = false;
-            p.isArc = true;
-            p.damage = ARC_BOLT_DAMAGE;
-            break;
+        let primary = droneTarget;
+        let primaryIsShield = false;
+        if (!primary) {
+          primary = shieldTarget;
+          primaryIsShield = true;
+        } else if (shieldTarget) {
+          const droneDistance = Math.hypot(primary.x - j.x, primary.y - j.y, primary.z - j.z);
+          const shieldDistance = Math.hypot(shieldTarget.x - j.x, shieldTarget.y - j.y, shieldTarget.z - j.z);
+          if (shieldDistance < droneDistance) {
+            primary = shieldTarget;
+            primaryIsShield = true;
           }
         }
 
         j.muzzleFlashTimer = 0.05;
+
+        if (!primary) {
+          j.arcHit = false;
+          j.arcChainA = false;
+          j.arcChainB = false;
+          j.arcEndX = j.x + dirX * ARC_BEAM_RANGE;
+          j.arcEndY = j.y + dirY * ARC_BEAM_RANGE;
+          j.arcEndZ = j.z + dirZ * ARC_BEAM_RANGE;
+          return;
+        }
+
+        j.arcHit = true;
+        j.arcEndX = primary.x;
+        j.arcEndY = primary.y;
+        j.arcEndZ = primary.z;
+
+        const damage = ARC_BEAM_DPS * dt;
+        if (primaryIsShield) this.applyArcBeamShieldDamage(primary, damage);
+        else this.applyArcBeamDamage(primary, damage);
+        this.arcChainFrom(primary, damage);
+      }
+
+      arcChainFrom(primary, damage) {
+        const j = this.jet;
+        const chainDamage = damage * ARC_CHAIN_FACTOR;
+        let found = 0;
+
+        for (let i = 0; i < MAX_DRONES && found < ARC_CHAIN_COUNT; i++) {
+          const d = this.drones[i];
+          if (!d.active || d === primary) continue;
+          if (Math.hypot(d.x - primary.x, d.y - primary.y, d.z - primary.z) > ARC_CHAIN_RANGE) continue;
+          this.applyArcBeamDamage(d, chainDamage);
+          this.setArcChainEndpoint(found, d);
+          found++;
+        }
+        for (let i = 0; i < SHIELD_DRONE_COUNT && found < ARC_CHAIN_COUNT; i++) {
+          const sd = this.shieldDrones[i];
+          if (!sd.active || sd === primary) continue;
+          if (Math.hypot(sd.x - primary.x, sd.y - primary.y, sd.z - primary.z) > ARC_CHAIN_RANGE) continue;
+          this.applyArcBeamShieldDamage(sd, chainDamage);
+          this.setArcChainEndpoint(found, sd);
+          found++;
+        }
+
+        if (found === 0) {
+          j.arcChainA = false;
+          j.arcChainB = false;
+        } else if (found === 1) {
+          j.arcChainB = false;
+        }
+      }
+
+      setArcChainEndpoint(index, target) {
+        const j = this.jet;
+        if (index === 0) {
+          j.arcChainA = true;
+          j.arcChainAX = target.x;
+          j.arcChainAY = target.y;
+          j.arcChainAZ = target.z;
+        } else {
+          j.arcChainB = true;
+          j.arcChainBX = target.x;
+          j.arcChainBY = target.y;
+          j.arcChainBZ = target.z;
+        }
+      }
+
+      applyArcBeamDamage(drone, amount) {
+        drone.hp -= amount;
+        drone.hitFlash = 1.0;
+        if (drone.hp > 0) return;
+
+        drone.active = false;
+        this.score += drone.enemyType === 1 ? 250 : 100;
+        this.targetsDestroyed += 1;
+        this.spawnBlast(drone.x, drone.y, drone.z, drone.enemyType === 1 ? 10.0 : 7.0, 0.55, 0.92, 1.0);
+        this.spawnExplosion(drone.x, drone.y, drone.z, drone.enemyType === 1 ? 42 : 26, drone.enemyType === 1 ? 1.55 : 1.15);
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.55, this.cam.shake + (drone.enemyType === 1 ? 0.34 : 0.22));
+        this.updateHUD();
+      }
+
+      applyArcBeamShieldDamage(shieldDrone, amount) {
+        shieldDrone.hp -= amount;
+        shieldDrone.hitFlash = 1.0;
+        if (shieldDrone.hp > 0) return;
+
+        shieldDrone.active = false;
+        this.score += 150;
+        this.targetsDestroyed += 1;
+        this.spawnBlast(shieldDrone.x, shieldDrone.y, shieldDrone.z, 7.0, 0.40, 0.85, 1.0);
+        this.spawnExplosion(shieldDrone.x, shieldDrone.y, shieldDrone.z, 26, 1.15);
+        this.updateHUD();
       }
 
       // Scan active drones ahead of a given origin & forward vector to find best lock-on target
@@ -1158,6 +1264,12 @@
         j.swarmTimer = 0;
         j.muzzleFlashTimer = 0;
         j.lockedDroneIdx = -1;
+        j.arcBeam = false;
+        j.arcHit = false;
+        j.arcChainA = false;
+        j.arcChainB = false;
+        j.shieldTimer = 0;
+        j.shieldHp = 0;
 
         this.clearInputState();
         this.pipperEl?.classList.remove('firing');
@@ -1333,9 +1445,12 @@
           }
           if (j.muzzleFlashTimer > 0) j.muzzleFlashTimer = Math.max(0, j.muzzleFlashTimer - dt);
 
-          if (wantsFire && j.fireCooldown <= 0) {
+          if (isArc) {
+            j.arcBeam = wantsFire;
+            if (wantsFire) this.updateArcBeam(dt);
+          } else if (wantsFire && j.fireCooldown <= 0) {
             this.fireProjectiles();
-            j.fireCooldown = isArc ? ARC_FIRE_COOLDOWN : 0.095;
+            j.fireCooldown = 0.095;
           }
           this.pipperEl?.classList.toggle('firing', wantsFire);
 
@@ -2295,7 +2410,7 @@
         const projStart = instCount;
         for (let i = 0; i < MAX_PROJECTILES; i++) {
           const p = this.projectiles[i];
-          if (!p.active || p.isArc) continue;
+          if (!p.active) continue;
           const sc = p.isSwarm ? 0.88 : 1.0;
           pushInstance(
             p.x, p.y, p.z,
@@ -2308,16 +2423,69 @@
         batches.projectile = { first: projStart, count: instCount - projStart };
 
         const boltStart = instCount;
-        for (let i = 0; i < MAX_PROJECTILES; i++) {
-          const p = this.projectiles[i];
-          if (!p.active || !p.isArc) continue;
-          pushInstance(
-            p.x, p.y, p.z,
-            p.yaw, p.pitch, this.time * 46.0 + i,
-            0.85, 0.85, 0.85,
-            p.r, p.g, p.b, 1.0,
-            4.0, 2.2, 0, 0
-          );
+        if (!this.gameOver && playerIsArc && j.arcBeam) {
+          const endX = j.arcEndX;
+          const endY = j.arcEndY;
+          const endZ = j.arcEndZ;
+
+          for (const side of [-1, 1]) {
+            transformAircraftPoint(4.62 * side, 0.26, -1.70, j.x, j.y, j.z, j.yaw, j.pitch, j.roll, this.tempVec3A);
+            const startX = this.tempVec3A[0];
+            const startY = this.tempVec3A[1];
+            const startZ = this.tempVec3A[2];
+
+            let previousX = startX;
+            let previousY = startY;
+            let previousZ = startZ;
+
+            for (let segment = 0; segment < ARC_BEAM_SEGMENTS; segment++) {
+              const t = (segment + 1) / ARC_BEAM_SEGMENTS;
+              const bulge = Math.sin(t * Math.PI);
+              const nextX = startX + (endX - startX) * t + (Math.random() - 0.5) * 2.1 * bulge;
+              const nextY = startY + (endY - startY) * t + (Math.random() - 0.5) * 2.1 * bulge;
+              const nextZ = startZ + (endZ - startZ) * t + (Math.random() - 0.5) * 2.1 * bulge;
+              const segX = nextX - previousX;
+              const segY = nextY - previousY;
+              const segZ = nextZ - previousZ;
+              const segLength = Math.hypot(segX, segY, segZ) || 1.0;
+
+              pushInstance(
+                (previousX + nextX) * 0.5, (previousY + nextY) * 0.5, (previousZ + nextZ) * 0.5,
+                Math.atan2(-segX, -segZ),
+                Math.asin(Math.max(-0.99, Math.min(0.99, segY / segLength))),
+                this.time * 140.0 + segment,
+                0.62, 0.62, Math.max(0.35, segLength / 4.0),
+                0.42, 0.90, 1.0, 1.0,
+                4.0, 2.5, 0, 0
+              );
+
+              previousX = nextX;
+              previousY = nextY;
+              previousZ = nextZ;
+            }
+          }
+
+          if (j.arcHit) {
+            pushInstance(endX, endY, endZ, 0, 0, this.time * 110.0, 1.25, 1.25, 1.25, 0.72, 0.97, 1.0, 1.0, 4.0, 3.2, 0, 0);
+            const chainPoints = [];
+            if (j.arcChainA) chainPoints.push(j.arcChainAX, j.arcChainAY, j.arcChainAZ);
+            if (j.arcChainB) chainPoints.push(j.arcChainBX, j.arcChainBY, j.arcChainBZ);
+            for (let c = 0; c + 2 < chainPoints.length; c += 3) {
+              const linkX = chainPoints[c] - endX;
+              const linkY = chainPoints[c + 1] - endY;
+              const linkZ = chainPoints[c + 2] - endZ;
+              const linkLength = Math.hypot(linkX, linkY, linkZ) || 1.0;
+              pushInstance(
+                (endX + chainPoints[c]) * 0.5, (endY + chainPoints[c + 1]) * 0.5, (endZ + chainPoints[c + 2]) * 0.5,
+                Math.atan2(-linkX, -linkZ),
+                Math.asin(Math.max(-0.99, Math.min(0.99, linkY / linkLength))),
+                linkLength * 0.9,
+                0.55, 0.55, Math.max(0.30, linkLength / 4.0),
+                0.50, 0.92, 1.0, 1.0,
+                4.0, 2.6, 0, 0
+              );
+            }
+          }
         }
         batches.lightningBolt = { first: boltStart, count: instCount - boltStart };
 

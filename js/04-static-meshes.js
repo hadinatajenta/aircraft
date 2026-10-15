@@ -893,41 +893,41 @@
 
       const voltFighterMarker = gb.beginMesh();
       {
-        const COL_VOLT_HULL   = [0.17, 0.20, 0.31];
-        const COL_VOLT_PLATE  = [0.32, 0.39, 0.58];
+        const COL_VOLT_HULL   = [0.15, 0.18, 0.30];
+        const COL_VOLT_PLATE  = [0.30, 0.37, 0.58];
         const COL_VOLT_ACCENT = [0.36, 0.64, 1.00];
-        const COL_VOLT_ARC    = [0.72, 0.95, 1.00];
+        const COL_VOLT_ARC    = [0.74, 0.97, 1.00];
 
-        const v0 = makeFuselageRing(-6.35, 0.02, -0.10, -0.08, -0.12, 0.50);
-        const v1 = makeFuselageRing(-5.10, 0.30, -0.06,  0.10, -0.20, 0.50);
-        const v2 = makeFuselageRing(-3.60, 0.66, -0.02,  0.28, -0.34, 0.52);
-        const v3 = makeFuselageRing(-1.90, 1.14,  0.02,  0.44, -0.44, 0.56);
-        const v4 = makeFuselageRing(-0.10, 1.44,  0.04,  0.46, -0.46, 0.62);
-        const v5 = makeFuselageRing( 1.90, 1.34,  0.04,  0.40, -0.42, 0.68);
-        const v6 = makeFuselageRing( 3.60, 1.10,  0.03,  0.30, -0.32, 0.72);
+        const w0 = makeFuselageRing(-7.60, 0.01, -0.08, -0.06, -0.08, 0.50);
+        const w1 = makeFuselageRing(-6.20, 0.16, -0.04,  0.06, -0.10, 0.50);
+        const w2 = makeFuselageRing(-4.60, 0.42,  0.00,  0.18, -0.22, 0.52);
+        const w3 = makeFuselageRing(-2.80, 0.82,  0.02,  0.32, -0.32, 0.56);
+        const w4 = makeFuselageRing(-0.60, 1.10,  0.04,  0.38, -0.36, 0.62);
+        const w5 = makeFuselageRing( 1.80, 1.02,  0.04,  0.34, -0.34, 0.68);
+        const w6 = makeFuselageRing( 3.60, 0.74,  0.03,  0.24, -0.26, 0.72);
 
-        gb.addLoftSection(v0, v1, COL_VOLT_ARC, COL_VOLT_ARC, COL_VOLT_ARC, MAT_EMISSIVE);
-        gb.addLoftSection(v1, v2, COL_VOLT_HULL, COL_VOLT_PLATE, COL_VOLT_HULL, MAT_GRAPHITE);
-        gb.addLoftSection(v2, v3, COL_VOLT_HULL, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_GRAPHITE);
-        gb.addLoftSection(v3, v4, COL_VOLT_PLATE, COL_VOLT_HULL, COL_VOLT_HULL, MAT_GRAPHITE);
-        gb.addLoftSection(v4, v5, COL_VOLT_HULL, COL_VOLT_HULL, COL_VOLT_HULL, MAT_GRAPHITE);
-        gb.addLoftSection(v5, v6, COL_VOLT_PLATE, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_METAL);
+        gb.addLoftSection(w0, w1, COL_VOLT_ARC, COL_VOLT_ARC, COL_VOLT_ARC, MAT_EMISSIVE);
+        gb.addLoftSection(w1, w2, COL_VOLT_PLATE, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_METAL);
+        gb.addLoftSection(w2, w3, COL_VOLT_HULL, COL_VOLT_PLATE, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(w3, w4, COL_VOLT_PLATE, COL_VOLT_ACCENT, COL_VOLT_HULL, MAT_METAL);
+        gb.addLoftSection(w4, w5, COL_VOLT_HULL, COL_VOLT_PLATE, COL_VOLT_HULL, MAT_GRAPHITE);
+        gb.addLoftSection(w5, w6, COL_VOLT_PLATE, COL_VOLT_HULL, COL_VOLT_HULL, MAT_GRAPHITE);
 
-        const k0 = makeFuselageRing(-3.85, 0.20, 0.22, 0.26, 0.20, 0.70);
-        const k1 = makeFuselageRing(-2.95, 0.46, 0.32, 0.70, 0.24, 0.72);
-        const k2 = makeFuselageRing(-1.85, 0.50, 0.36, 0.78, 0.28, 0.72);
-        const k3 = makeFuselageRing(-0.85, 0.36, 0.38, 0.58, 0.32, 0.68);
-        gb.addLoftSection(k0, k1, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
-        gb.addLoftSection(k1, k2, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
-        gb.addLoftSection(k2, k3, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+        const g0 = makeFuselageRing(-4.30, 0.16, 0.14, 0.18, 0.12, 0.70);
+        const g1 = makeFuselageRing(-3.30, 0.34, 0.22, 0.46, 0.16, 0.72);
+        const g2 = makeFuselageRing(-2.10, 0.36, 0.25, 0.48, 0.19, 0.72);
+        const g3 = makeFuselageRing(-1.05, 0.24, 0.27, 0.34, 0.22, 0.68);
+        gb.addLoftSection(g0, g1, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+        gb.addLoftSection(g1, g2, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
+        gb.addLoftSection(g2, g3, COL_CANOPY_GLASS, COL_CANOPY_GLASS, COL_VOLT_HULL, MAT_CANOPY);
 
         gb.addSymmetricAirfoil(
-          [1.15, 0.04, -1.30],
-          [1.15, 0.02,  2.30],
-          0.13,
-          [5.30, 0.30,  0.20],
-          [5.30, 0.30,  1.90],
-          0.05,
+          [1.02, 0.02, -1.25],
+          [1.02, 0.00,  2.15],
+          0.11,
+          [4.55, 0.26, -3.35],
+          [4.55, 0.26, -0.55],
+          0.045,
           COL_VOLT_HULL,
           COL_VOLT_PLATE,
           COL_VOLT_ACCENT,
@@ -936,12 +936,26 @@
         );
 
         gb.addSymmetricAirfoil(
-          [0.70, 0.20, 2.60],
-          [0.70, 0.16, 4.10],
-          0.06,
-          [1.50, 1.55, 3.30],
-          [1.46, 1.52, 4.40],
-          0.025,
+          [0.34, 0.06, -4.55],
+          [0.34, 0.06, -3.35],
+          0.05,
+          [1.55, 0.30, -5.05],
+          [1.55, 0.30, -4.25],
+          0.022,
+          COL_VOLT_PLATE,
+          COL_VOLT_ARC,
+          COL_VOLT_ACCENT,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        gb.addSymmetricAirfoil(
+          [0.44, -0.10, 1.40],
+          [0.44, -0.12, 3.10],
+          0.05,
+          [1.35, -1.35, 2.10],
+          [1.31, -1.32, 3.40],
+          0.022,
           COL_VOLT_PLATE,
           COL_VOLT_HULL,
           COL_VOLT_ARC,
@@ -950,11 +964,14 @@
         );
 
         for (const sign of [-1, 1]) {
-          addCylinderZ(5.34 * sign, 0.30, 0.10, 1.10, 0.10, 0.05, 6, COL_VOLT_ARC, MAT_EMISSIVE);
-          addCylinderZ(0.56 * sign, -0.02, 3.55, 4.45, 0.34, 0.26, 10, COL_VOLT_PLATE, MAT_METAL);
-          addCylinderZ(0.56 * sign, -0.02, 4.40, 4.66, 0.22, 0.15, 10, COL_VOLT_ARC, MAT_EMISSIVE);
-          addCylinderZ(1.62 * sign, -0.20, -2.30, -1.35, 0.05, 0.13, 6, COL_VOLT_ACCENT, MAT_ACCENT);
+          addCylinderZ(4.62 * sign, 0.26, -3.10, -1.70, 0.09, 0.05, 6, COL_VOLT_ARC, MAT_EMISSIVE);
+          addCylinderZ(1.02 * sign, 0.16, -2.60, -0.60, 0.045, 0.045, 5, COL_VOLT_ARC, MAT_EMISSIVE);
+          addCylinderZ(0.30 * sign, 0.30, -1.90,  3.20, 0.04,  0.04,  5, COL_VOLT_ARC, MAT_EMISSIVE);
+          addCylinderZ(0.72 * sign, -0.06, 3.30, 4.10, 0.24, 0.17, 8, COL_VOLT_PLATE, MAT_METAL);
+          addCylinderZ(0.72 * sign, -0.06, 3.95, 4.30, 0.16, 0.10, 8, COL_VOLT_ARC, MAT_EMISSIVE);
         }
+        addCylinderZ(0.0, -0.02, 3.30, 4.55, 0.34, 0.22, 10, COL_VOLT_PLATE, MAT_METAL);
+        addCylinderZ(0.0, -0.02, 4.40, 4.80, 0.22, 0.13, 10, COL_VOLT_ARC, MAT_EMISSIVE);
       }
       const meshVoltFighter = gb.endMesh(voltFighterMarker);
 
