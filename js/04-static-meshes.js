@@ -653,49 +653,183 @@
       }
       const meshShieldDrone = gb.endMesh(shieldDroneMarker);
 
-      const shieldDomeMarker = gb.beginMesh();
+      const shieldPanelMarker = gb.beginMesh();
       {
-        const COL_SHIELD_GLOW = [0.55, 0.95, 1.00];
-        const segmentCount = 24;
-        const ringCount = 12;
-        const domeRadius = 1.0;
+        const COL_PANEL_BASE   = [0.22, 0.52, 1.00];
+        const COL_PANEL_BRIGHT = [0.34, 0.68, 1.00];
+        const COL_PANEL_RIM    = [0.66, 0.88, 1.00];
+        const COL_PANEL_SEAM   = [0.80, 0.94, 1.00];
 
-        const latitudeRings = [];
-        for (let ringIndex = 1; ringIndex <= ringCount; ringIndex++) {
-          const polarAngle = (ringIndex / (ringCount + 1)) * Math.PI;
-          const ringRadius = Math.sin(polarAngle) * domeRadius;
-          const ringY = Math.cos(polarAngle) * domeRadius;
-          const ringPoints = [];
-          for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
-            const azimuth = (segmentIndex / segmentCount) * Math.PI * 2.0;
-            ringPoints.push([
-              Math.cos(azimuth) * ringRadius,
-              ringY,
-              Math.sin(azimuth) * ringRadius
-            ]);
+        const panelOuterExtent = 0.5;
+        const panelInset = 0.03;
+        const panelInnerExtent = panelOuterExtent - panelInset;
+        const panelColumnCount = 12;
+        const panelRowCount = 5;
+
+        function panelBulge(panelX) {
+          const normalizedX = 2.0 * panelX;
+          return 0.10 * (1.0 - normalizedX * normalizedX);
+        }
+
+        function panelPoint(panelX, panelY) {
+          return [panelX, panelY, panelBulge(panelX)];
+        }
+
+        const panelColumnX = [];
+        for (let columnIndex = 0; columnIndex <= panelColumnCount; columnIndex++) {
+          panelColumnX.push(-panelInnerExtent + (columnIndex / panelColumnCount) * (panelInnerExtent * 2.0));
+        }
+        const panelRowY = [];
+        for (let rowIndex = 0; rowIndex <= panelRowCount; rowIndex++) {
+          panelRowY.push(-panelInnerExtent + (rowIndex / panelRowCount) * (panelInnerExtent * 2.0));
+        }
+
+        for (let rowIndex = 0; rowIndex < panelRowCount; rowIndex++) {
+          for (let columnIndex = 0; columnIndex < panelColumnCount; columnIndex++) {
+            const x0 = panelColumnX[columnIndex];
+            const x1 = panelColumnX[columnIndex + 1];
+            const y0 = panelRowY[rowIndex];
+            const y1 = panelRowY[rowIndex + 1];
+            const cellColor = ((rowIndex + columnIndex) % 2 === 0) ? COL_PANEL_BASE : COL_PANEL_BRIGHT;
+            gb.addQuad(panelPoint(x0, y0), panelPoint(x1, y0), panelPoint(x1, y1), panelPoint(x0, y1), cellColor, MAT_EMISSIVE);
           }
-          latitudeRings.push(ringPoints);
         }
 
-        const northPole = [0.0, domeRadius, 0.0];
-        const southPole = [0.0, -domeRadius, 0.0];
-
-        for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
-          const nextSegment = (segmentIndex + 1) % segmentCount;
-          gb.addTri(northPole, latitudeRings[0][nextSegment], latitudeRings[0][segmentIndex], COL_SHIELD_GLOW, MAT_EMISSIVE);
-          gb.addTri(southPole, latitudeRings[ringCount - 1][segmentIndex], latitudeRings[ringCount - 1][nextSegment], COL_SHIELD_GLOW, MAT_EMISSIVE);
+        for (let columnIndex = 0; columnIndex < panelColumnCount; columnIndex++) {
+          const x0 = panelColumnX[columnIndex];
+          const x1 = panelColumnX[columnIndex + 1];
+          gb.addQuad(
+            panelPoint(x0, panelInnerExtent),
+            panelPoint(x1, panelInnerExtent),
+            panelPoint(x1, panelOuterExtent),
+            panelPoint(x0, panelOuterExtent),
+            COL_PANEL_RIM,
+            MAT_EMISSIVE
+          );
+          gb.addQuad(
+            panelPoint(x0, -panelOuterExtent),
+            panelPoint(x1, -panelOuterExtent),
+            panelPoint(x1, -panelInnerExtent),
+            panelPoint(x0, -panelInnerExtent),
+            COL_PANEL_RIM,
+            MAT_EMISSIVE
+          );
         }
 
-        for (let ringIndex = 0; ringIndex < ringCount - 1; ringIndex++) {
-          const upperRing = latitudeRings[ringIndex];
-          const lowerRing = latitudeRings[ringIndex + 1];
-          for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
-            const nextSegment = (segmentIndex + 1) % segmentCount;
-            gb.addQuad(upperRing[segmentIndex], upperRing[nextSegment], lowerRing[nextSegment], lowerRing[segmentIndex], COL_SHIELD_GLOW, MAT_EMISSIVE);
+        for (let rowIndex = 0; rowIndex < panelRowCount; rowIndex++) {
+          const y0 = panelRowY[rowIndex];
+          const y1 = panelRowY[rowIndex + 1];
+          gb.addQuad(
+            panelPoint(-panelOuterExtent, y0),
+            panelPoint(-panelInnerExtent, y0),
+            panelPoint(-panelInnerExtent, y1),
+            panelPoint(-panelOuterExtent, y1),
+            COL_PANEL_RIM,
+            MAT_EMISSIVE
+          );
+          gb.addQuad(
+            panelPoint(panelInnerExtent, y0),
+            panelPoint(panelOuterExtent, y0),
+            panelPoint(panelOuterExtent, y1),
+            panelPoint(panelInnerExtent, y1),
+            COL_PANEL_RIM,
+            MAT_EMISSIVE
+          );
+        }
+
+        gb.addQuad(
+          panelPoint(-panelOuterExtent, panelInnerExtent),
+          panelPoint(-panelInnerExtent, panelInnerExtent),
+          panelPoint(-panelInnerExtent, panelOuterExtent),
+          panelPoint(-panelOuterExtent, panelOuterExtent),
+          COL_PANEL_RIM,
+          MAT_EMISSIVE
+        );
+        gb.addQuad(
+          panelPoint(panelInnerExtent, panelInnerExtent),
+          panelPoint(panelOuterExtent, panelInnerExtent),
+          panelPoint(panelOuterExtent, panelOuterExtent),
+          panelPoint(panelInnerExtent, panelOuterExtent),
+          COL_PANEL_RIM,
+          MAT_EMISSIVE
+        );
+        gb.addQuad(
+          panelPoint(-panelOuterExtent, -panelOuterExtent),
+          panelPoint(-panelInnerExtent, -panelOuterExtent),
+          panelPoint(-panelInnerExtent, -panelInnerExtent),
+          panelPoint(-panelOuterExtent, -panelInnerExtent),
+          COL_PANEL_RIM,
+          MAT_EMISSIVE
+        );
+        gb.addQuad(
+          panelPoint(panelInnerExtent, -panelOuterExtent),
+          panelPoint(panelOuterExtent, -panelOuterExtent),
+          panelPoint(panelOuterExtent, -panelInnerExtent),
+          panelPoint(panelInnerExtent, -panelInnerExtent),
+          COL_PANEL_RIM,
+          MAT_EMISSIVE
+        );
+
+        const panelSeamHalfWidth = 0.007;
+        const panelSeamCentresX = [-0.235, 0.235];
+        for (const seamCentreX of panelSeamCentresX) {
+          gb.addQuad(
+            panelPoint(seamCentreX - panelSeamHalfWidth, -panelInnerExtent),
+            panelPoint(seamCentreX + panelSeamHalfWidth, -panelInnerExtent),
+            panelPoint(seamCentreX + panelSeamHalfWidth, panelInnerExtent),
+            panelPoint(seamCentreX - panelSeamHalfWidth, panelInnerExtent),
+            COL_PANEL_SEAM,
+            MAT_EMISSIVE
+          );
+        }
+
+        const panelSeamHalfHeight = 0.006;
+        const panelSeamCentresY = [-0.25, 0.25];
+        for (const seamCentreY of panelSeamCentresY) {
+          for (let columnIndex = 0; columnIndex < panelColumnCount; columnIndex++) {
+            const x0 = panelColumnX[columnIndex];
+            const x1 = panelColumnX[columnIndex + 1];
+            gb.addQuad(
+              panelPoint(x0, seamCentreY - panelSeamHalfHeight),
+              panelPoint(x1, seamCentreY - panelSeamHalfHeight),
+              panelPoint(x1, seamCentreY + panelSeamHalfHeight),
+              panelPoint(x0, seamCentreY + panelSeamHalfHeight),
+              COL_PANEL_SEAM,
+              MAT_EMISSIVE
+            );
           }
         }
       }
-      const meshShieldDome = gb.endMesh(shieldDomeMarker);
+      const meshShieldPanel = gb.endMesh(shieldPanelMarker);
+
+      const shieldRingMarker = gb.beginMesh();
+      {
+        const COL_RING_BODY = [0.36, 0.86, 1.00];
+        const COL_RING_LIP  = [0.70, 0.94, 1.00];
+
+        const ringInnerRadius = 0.36;
+        const ringLipRadius = 0.40;
+        const ringOuterRadius = 0.50;
+        const ringSegmentCount = 32;
+
+        for (let segmentIndex = 0; segmentIndex < ringSegmentCount; segmentIndex++) {
+          const angle0 = (segmentIndex / ringSegmentCount) * Math.PI * 2.0;
+          const angle1 = ((segmentIndex + 1) / ringSegmentCount) * Math.PI * 2.0;
+          const cos0 = Math.cos(angle0), sin0 = Math.sin(angle0);
+          const cos1 = Math.cos(angle1), sin1 = Math.sin(angle1);
+
+          const inner0 = [ringInnerRadius * cos0, ringInnerRadius * sin0, 0.0];
+          const lip0 = [ringLipRadius * cos0, ringLipRadius * sin0, 0.0];
+          const outer0 = [ringOuterRadius * cos0, ringOuterRadius * sin0, 0.0];
+          const inner1 = [ringInnerRadius * cos1, ringInnerRadius * sin1, 0.0];
+          const lip1 = [ringLipRadius * cos1, ringLipRadius * sin1, 0.0];
+          const outer1 = [ringOuterRadius * cos1, ringOuterRadius * sin1, 0.0];
+
+          gb.addQuad(inner0, lip0, lip1, inner1, COL_RING_LIP, MAT_EMISSIVE);
+          gb.addQuad(lip0, outer0, outer1, lip1, COL_RING_BODY, MAT_EMISSIVE);
+        }
+      }
+      const meshShieldRing = gb.endMesh(shieldRingMarker);
 
       return {
         vertexData: new Float32Array(gb.vertices),
@@ -712,7 +846,8 @@
           missile: meshMissile,
           mothership: meshMothership,
           shieldDrone: meshShieldDrone,
-          shieldDome: meshShieldDome
+          shieldPanel: meshShieldPanel,
+          shieldRing: meshShieldRing
         }
       };
     }

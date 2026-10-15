@@ -601,34 +601,89 @@ function takeFreeProjectile(sim) {
   const sim = newSim();
   const info = sim.prepareRenderData(16 / 9);
   check('M1 the render exposes a shieldDrone batch', info.batches.shieldDrone !== undefined, JSON.stringify(info.batches.shieldDrone));
-  check('M2 the ring renders eight projectors', info.batches.shieldDrone.count === 8, `count=${info.batches.shieldDrone.count}`);
-  check('M3 the render exposes a shieldDome batch', info.batches.shieldDome !== undefined, JSON.stringify(info.batches.shieldDome));
-  check('M4 the flagship dome renders while shielded', info.batches.shieldDome.count >= 1, `count=${info.batches.shieldDome.count}`);
-  check('M5 the instance budget is respected', info.totalInstances <= 1024, `instances=${info.totalInstances}`);
+  check('M2 the formation renders eight projectors', info.batches.shieldDrone.count === 8, `count=${info.batches.shieldDrone.count}`);
+  check('M3 the render exposes a shieldPanel batch', info.batches.shieldPanel !== undefined, JSON.stringify(info.batches.shieldPanel));
+  check('M4 the barrier renders while the shield holds', info.batches.shieldPanel.count === 1, `count=${info.batches.shieldPanel.count}`);
+  check('M5 no player halo renders in attacker role', info.batches.shieldRing.count === 0, `count=${info.batches.shieldRing.count}`);
+  check('M6 the instance budget is respected', info.totalInstances <= 1024, `instances=${info.totalInstances}`);
 
-  const domeBefore = sim.prepareRenderData(16 / 9).batches.shieldDome.count;
+  const panelBefore = info.batches.shieldPanel.count;
   for (const sd of sim.shieldDrones) sd.active = false;
   sim.mothership.shieldFlash = 0;
-  const domeAfter = sim.prepareRenderData(16 / 9).batches.shieldDome.count;
-  check('M6 the dome is dropped once the shield is gone', domeAfter < domeBefore, `${domeBefore} -> ${domeAfter}`);
+  const panelAfter = sim.prepareRenderData(16 / 9).batches.shieldPanel.count;
+  check('M7 the barrier is dropped once the shield is gone', panelAfter < panelBefore, `${panelBefore} -> ${panelAfter}`);
 
-  const bubbleSim = newSim();
-  bubbleSim.toggleSwarmRole();
-  bubbleSim.deployAlliedSwarm();
-  const bubbleInfo = bubbleSim.prepareRenderData(16 / 9);
-  check('M7 the player bubble renders alongside the flagship dome', bubbleInfo.batches.shieldDome.count === 2, `count=${bubbleInfo.batches.shieldDome.count}`);
-
-  const noBubbleSim = newSim();
-  noBubbleSim.deployAlliedSwarm();
-  const noBubbleInfo = noBubbleSim.prepareRenderData(16 / 9);
-  check('M8 no player bubble renders in attacker role', noBubbleInfo.batches.shieldDome.count === 1, `count=${noBubbleInfo.batches.shieldDome.count}`);
+  const haloSim = newSim();
+  haloSim.toggleSwarmRole();
+  haloSim.deployAlliedSwarm();
+  const haloInfo = haloSim.prepareRenderData(16 / 9);
+  check('M8 the player halo renders in shielder role', haloInfo.batches.shieldRing.count === 1, `count=${haloInfo.batches.shieldRing.count}`);
 
   const lateSwitchSim = newSim();
   lateSwitchSim.deployAlliedSwarm();
   lateSwitchSim.toggleSwarmRole();
   const lateSwitchInfo = lateSwitchSim.prepareRenderData(16 / 9);
-  check('M9 switching role after deploying still raises the bubble', lateSwitchSim.jet.swarmRole === 'shielder' && lateSwitchSim.jet.shieldHp === 45, `shieldHp=${lateSwitchSim.jet.shieldHp}`);
-  check('M10 the late-switch bubble renders', lateSwitchInfo.batches.shieldDome.count === 2, `count=${lateSwitchInfo.batches.shieldDome.count}`);
+  check('M9 switching role after deploying still raises the halo', lateSwitchSim.jet.swarmRole === 'shielder' && lateSwitchSim.jet.shieldHp === 45, `shieldHp=${lateSwitchSim.jet.shieldHp}`);
+  check('M10 the late-switch halo renders', lateSwitchInfo.batches.shieldRing.count === 1, `count=${lateSwitchInfo.batches.shieldRing.count}`);
+}
+
+{
+  const sim = newSim();
+  const ms = sim.mothership;
+  const formation = sim.shieldDrones.filter((sd) => sd.active);
+
+  check('N1 the projectors hold a formation of eight', formation.length === 8, `count=${formation.length}`);
+  check('N2 the formation is two rows of four', formation.filter((sd) => sd.y > 5.6).length === 4 && formation.filter((sd) => sd.y < 5.6).length === 4, `above=${formation.filter((sd) => sd.y > 5.6).length} below=${formation.filter((sd) => sd.y < 5.6).length}`);
+  check('N3 the formation is four columns', new Set(formation.map((sd) => Math.round(sd.x - ms.x))).size === 4, JSON.stringify([...new Set(formation.map((sd) => Math.round(sd.x - ms.x)))]));
+  check('N4 the formation sits between the player and the flagship', formation.every((sd) => sd.z > ms.z && sd.z < 0), `droneZ=${Math.round(formation[0].z)} flagshipZ=${Math.round(ms.z)}`);
+  check('N5 the formation stays inside the reachable firing band', formation.every((sd) => sd.y > -5.0 && sd.y < 11.0), `y=${formation.map((sd) => sd.y.toFixed(1)).join(',')}`);
+
+  const beforeX = formation.map((sd) => sd.x - ms.x);
+  const beforeY = formation.map((sd) => sd.y);
+  stepFor(sim, 8);
+  const maxOffsetDrift = Math.max(...formation.map((sd, index) => Math.abs((sd.x - ms.x) - beforeX[index])));
+  const maxYDrift = Math.max(...formation.map((sd, index) => Math.abs(sd.y - beforeY[index])));
+  check('N6 the formation never circles the flagship', maxOffsetDrift < 0.001, `maxOffsetDrift=${maxOffsetDrift}`);
+  check('N7 the formation only hovers inside a small band', maxYDrift < 1.2, `maxYDrift=${maxYDrift.toFixed(2)}`);
+  check('N8 the projectors keep facing the player', formation.every((sd) => Math.abs(sd.yaw - Math.PI) < 1e-6), `yaw=${formation[0].yaw.toFixed(3)}`);
+  check('N9 the formation never leaves the reachable band over time', formation.every((sd) => sd.y > -5.0 && sd.y < 11.0), `y=${formation.map((sd) => sd.y.toFixed(1)).join(',')}`);
+}
+
+{
+  const sim = newSim();
+  sim.toggleSwarmRole();
+  sim.deployAlliedSwarm();
+  stepFor(sim, 0.4);
+
+  const info = sim.prepareRenderData(16 / 9);
+  const ranges = Object.entries(info.batches)
+    .filter(([, batch]) => batch.count > 0)
+    .map(([name, batch]) => ({ name, first: batch.first, last: batch.first + batch.count - 1 }));
+
+  const overlaps = [];
+  for (let i = 0; i < ranges.length; i++) {
+    for (let k = i + 1; k < ranges.length; k++) {
+      if (ranges[i].first <= ranges[k].last && ranges[k].first <= ranges[i].last) {
+        overlaps.push(`${ranges[i].name}[${ranges[i].first}-${ranges[i].last}] vs ${ranges[k].name}[${ranges[k].first}-${ranges[k].last}]`);
+      }
+    }
+  }
+  check('P1 no two instance batches overlap', overlaps.length === 0, overlaps.join('; ') || `${ranges.length} batches are disjoint`);
+
+  const plumeBatch = info.batches.plume;
+  check('P2 the plume batch closes before the shield batches open', plumeBatch.count > 0 && plumeBatch.first + plumeBatch.count <= info.batches.shieldPanel.first, `plume ends at ${plumeBatch.first + plumeBatch.count - 1}, shieldPanel starts at ${info.batches.shieldPanel.first}`);
+
+  const claimed = new Set();
+  let duplicated = 0;
+  for (const batch of Object.values(info.batches)) {
+    for (let index = batch.first; index < batch.first + batch.count; index++) {
+      if (claimed.has(index)) duplicated += 1;
+      claimed.add(index);
+    }
+  }
+  check('P3 every instance is claimed by exactly one batch', duplicated === 0 && claimed.size === info.totalInstances, `claimed=${claimed.size} total=${info.totalInstances} duplicated=${duplicated}`);
+
+  check('P4 the shield batches hold one instance each', info.batches.shieldPanel.count === 1 && info.batches.shieldRing.count === 1, `panel=${info.batches.shieldPanel.count} ring=${info.batches.shieldRing.count}`);
 }
 
 const failures = results.filter((r) => !r.passed);

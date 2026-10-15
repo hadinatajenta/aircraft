@@ -555,8 +555,11 @@
         if (b.shard.count > 0) {
           renderPass.drawIndexed(meshes.shard.indexCount, b.shard.count, meshes.shard.firstIndex, 0, b.shard.first);
         }
-        if (b.shieldDome.count > 0) {
-          renderPass.drawIndexed(meshes.shieldDome.indexCount, b.shieldDome.count, meshes.shieldDome.firstIndex, 0, b.shieldDome.first);
+        if (b.shieldPanel.count > 0) {
+          renderPass.drawIndexed(meshes.shieldPanel.indexCount, b.shieldPanel.count, meshes.shieldPanel.firstIndex, 0, b.shieldPanel.first);
+        }
+        if (b.shieldRing.count > 0) {
+          renderPass.drawIndexed(meshes.shieldRing.indexCount, b.shieldRing.count, meshes.shieldRing.firstIndex, 0, b.shieldRing.first);
         }
 
         renderPass.end();

@@ -39,19 +39,25 @@
     const SHIELD_DRONE_COUNT     = 8;
     const SHIELD_DRONE_HP        = 1;
     const SHIELD_DRONE_PATIENCE  = 15.0;
-    const SHIELD_RING_RADIUS     = 42.0;
-    const SHIELD_RING_Y_SCALE    = 0.18;
-    const SHIELD_RING_SPIN       = 0.30;
-    const SHIELD_DOME_RADIUS_X   = 46.0;
-    const SHIELD_DOME_RADIUS_Y   = 14.0;
-    const SHIELD_DOME_RADIUS_Z   = 46.0;
     const SHIELD_REDEPLOY_DELAY  = 30.0;
     const KAMIKAZE_SPEED         = 55.0;
     const KAMIKAZE_DAMAGE        = 12;
     const KAMIKAZE_TRIGGER_RANGE = 2.2;
 
+    const SHIELD_FORMATION_SIZE     = 8;
+    const SHIELD_FORMATION_Z        = 24.0;
+    const SHIELD_FORMATION_CENTER_Y = 5.6;
+    const SHIELD_FORMATION_INNER_X  = 9.0;
+    const SHIELD_FORMATION_OUTER_X  = 26.0;
+    const SHIELD_FORMATION_ROW_Y    = 4.6;
+    const SHIELD_FORMATION_HOVER    = 0.35;
+    const SHIELD_PANEL_WIDTH        = 64.0;
+    const SHIELD_PANEL_HEIGHT       = 16.0;
+    const SHIELD_PANEL_OFFSET_Z     = 1.6;
+    const SHIELD_PANEL_BASE_GLOW    = 0.26;
+
     const PLAYER_SHIELD_CAPACITY    = 45;
-    const PLAYER_SHIELD_DOME_RADIUS = 6.2;
+    const PLAYER_SHIELD_RING_RADIUS = 7.4;
     const SWARM_ROLE_ATTACKER       = 'attacker';
     const SWARM_ROLE_SHIELDER       = 'shielder';
 
@@ -111,7 +117,7 @@
         this.shieldDrones = Array.from({ length: SHIELD_DRONE_COUNT }, (_, idx) => ({
           active: false, slotIdx: idx, mode: 'shield',
           x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0,
-          orbitAngle: 0, phase: 0, age: 0, hp: SHIELD_DRONE_HP, maxHp: SHIELD_DRONE_HP,
+          offsetX: 0, offsetY: 0, phase: 0, age: 0, hp: SHIELD_DRONE_HP, maxHp: SHIELD_DRONE_HP,
           hitFlash: 0, vx: 0, vy: 0, vz: 0, trailTimer: 0
         }));
 
@@ -285,12 +291,19 @@
           sd.age = 0;
           sd.hitFlash = 0;
           sd.trailTimer = 0;
-          sd.orbitAngle = (i / SHIELD_DRONE_COUNT) * Math.PI * 2;
-          sd.phase = Math.random() * Math.PI * 2;
+          sd.phase = (i / SHIELD_DRONE_COUNT) * Math.PI * 2;
           sd.vx = 0;
           sd.vy = 0;
           sd.vz = 0;
-          this.updateShieldDroneTransform(sd, ms.x, ms.y, ms.z, 0);
+
+          const isTopRow = i < SHIELD_FORMATION_SIZE / 2;
+          const column = i % (SHIELD_FORMATION_SIZE / 2);
+          const isOuterColumn = column === 0 || column === (SHIELD_FORMATION_SIZE / 2) - 1;
+          const columnSign = column < SHIELD_FORMATION_SIZE / 4 ? -1 : 1;
+          sd.offsetX = (isOuterColumn ? SHIELD_FORMATION_OUTER_X : SHIELD_FORMATION_INNER_X) * columnSign;
+          sd.offsetY = isTopRow ? SHIELD_FORMATION_ROW_Y : -SHIELD_FORMATION_ROW_Y;
+
+          this.updateShieldDroneTransform(sd, ms.x, ms.z);
         }
 
         ms.shieldBroken = false;
@@ -298,16 +311,14 @@
         ms.shieldFlash = 1.0;
       }
 
-      updateShieldDroneTransform(sd, centreX, centreY, centreZ, dt) {
-        const wobble = Math.sin(sd.phase) * 2.4;
-        const orbitAngle = sd.orbitAngle + this.time * SHIELD_RING_SPIN;
-        sd.x = centreX + Math.cos(orbitAngle) * (SHIELD_RING_RADIUS + wobble);
-        sd.y = centreY + Math.sin(orbitAngle) * (SHIELD_RING_RADIUS + wobble) * SHIELD_RING_Y_SCALE;
-        sd.z = centreZ + Math.cos(sd.phase * 0.7) * 3.2;
-        sd.roll = orbitAngle + Math.PI * 0.5;
-        sd.pitch = 0;
+      updateShieldDroneTransform(sd, centreX, centreZ) {
+        const hover = Math.sin(sd.phase) * SHIELD_FORMATION_HOVER;
+        sd.x = centreX + sd.offsetX;
+        sd.y = SHIELD_FORMATION_CENTER_Y + sd.offsetY + hover;
+        sd.z = centreZ + SHIELD_FORMATION_Z;
         sd.yaw = Math.PI;
-        if (dt > 0) sd.phase += dt * 1.15;
+        sd.pitch = 0;
+        sd.roll = 0;
       }
 
       countShieldingDrones() {
@@ -1100,8 +1111,8 @@
             let formX, formY, formZ;
 
             if (isShielder) {
-              formX = Math.cos(orbitAngle) * (PLAYER_SHIELD_DOME_RADIUS - 0.6);
-              formY = Math.sin(orbitAngle) * (PLAYER_SHIELD_DOME_RADIUS - 0.6) * 0.72;
+              formX = Math.cos(orbitAngle) * (PLAYER_SHIELD_RING_RADIUS - 0.8);
+              formY = Math.sin(orbitAngle) * (PLAYER_SHIELD_RING_RADIUS - 0.8) * 0.72;
               formZ = Math.sin(orbitAngle * 1.7) * 0.9 - 0.4;
             } else {
               const side = (i % 2 === 0) ? -1 : 1;
@@ -1446,7 +1457,8 @@
 
           if (sd.mode === 'shield') {
             sd.age += dt;
-            this.updateShieldDroneTransform(sd, ms.x, ms.y, ms.z, dt);
+            sd.phase += dt * 0.9;
+            this.updateShieldDroneTransform(sd, ms.x, ms.z);
             if (sd.age >= SHIELD_DRONE_PATIENCE) {
               sd.mode = 'kamikaze';
               sd.vx = 0;
@@ -1889,7 +1901,7 @@
           pushInstance(
             sd.x, sd.y, sd.z,
             sd.yaw, sd.pitch, sd.roll,
-            1.45, 1.45, 1.45,
+            1.6, 1.6, 1.6,
             isKamikaze ? 1.0 : 0.85, isKamikaze ? 0.35 : 0.95, isKamikaze ? 0.28 : 1.0, 1,
             0, isKamikaze ? 1.0 : 0.7, 0.5, sd.hitFlash
           );
@@ -2078,42 +2090,43 @@
           }
         }
 
-        // Mothership energy shield bubble, opacity driven by the surviving shield ring
-        const shieldDomeStart = instCount;
+        batches.plume = { first: plumeStart, count: instCount - plumeStart };
+
+        // Enemy shield barrier projected by the projector formation, drone-held and drone-count scaled
+        const shieldPanelStart = instCount;
         if (this.mothership && this.mothership.active) {
           const ms = this.mothership;
           const shielding = this.countShieldingDrones();
           const shieldRatio = shielding / SHIELD_DRONE_COUNT;
           if (shielding > 0 || ms.shieldFlash > 0) {
-            const shellAlpha = Math.min(0.18, 0.02 + shieldRatio * 0.11 + ms.shieldFlash * 0.10);
-            const shellBoost = 1.0 + ms.shieldFlash * 0.04;
+            const panelPulse = 1.0 + Math.sin(this.time * 2.1) * 0.05;
+            const panelAlpha = Math.min(0.22, 0.03 + shieldRatio * 0.13 + ms.shieldFlash * 0.10);
             pushInstance(
-              ms.x, ms.y, ms.z,
-              0, ms.pitch, this.time * 0.18,
-              SHIELD_DOME_RADIUS_X * shellBoost,
-              SHIELD_DOME_RADIUS_Y * shellBoost,
-              SHIELD_DOME_RADIUS_Z * shellBoost,
-              0.34, 0.86, 1.0, shellAlpha,
-              4.0, 0.12 + ms.shieldFlash * 1.1, 0, 0
+              ms.x, SHIELD_FORMATION_CENTER_Y, ms.z + SHIELD_FORMATION_Z + SHIELD_PANEL_OFFSET_Z,
+              0, 0, 0,
+              SHIELD_PANEL_WIDTH * panelPulse,
+              SHIELD_PANEL_HEIGHT * panelPulse,
+              1,
+              0.30, 0.62, 1.0, panelAlpha,
+              4.0, SHIELD_PANEL_BASE_GLOW + ms.shieldFlash * 1.4, 0, 0
             );
           }
         }
+        batches.shieldPanel = { first: shieldPanelStart, count: instCount - shieldPanelStart };
 
-        // Player hull shield bubble projected by the allied swarm in shielder role
+        // Player shield halo: an open ring so the aircraft and the forward view stay unobstructed
+        const shieldRingStart = instCount;
         if (!this.gameOver && j.swarmRole === SWARM_ROLE_SHIELDER && j.shieldHp > 0) {
           const playerShieldRatio = Math.max(0, Math.min(1, j.shieldHp / j.maxShieldHp));
-          const playerShellRadius = PLAYER_SHIELD_DOME_RADIUS * (1.0 + j.shieldFlash * 0.06);
           pushInstance(
             j.x, j.y + microBuffetY, j.z,
-            j.yaw, j.pitch, this.time * 0.9,
-            playerShellRadius, playerShellRadius, playerShellRadius,
-            0.30, 0.92, 1.0, 0.03 + playerShieldRatio * 0.10 + j.shieldFlash * 0.12,
-            4.0, 0.14 + j.shieldFlash * 1.2, 0, 0
+            j.yaw, j.pitch, 0,
+            PLAYER_SHIELD_RING_RADIUS, PLAYER_SHIELD_RING_RADIUS, PLAYER_SHIELD_RING_RADIUS,
+            0.34, 0.80, 1.0, 0.10 + playerShieldRatio * 0.10 + j.shieldFlash * 0.16,
+            4.0, 0.22 + j.shieldFlash * 1.3, 0, 0
           );
         }
-        batches.shieldDome = { first: shieldDomeStart, count: instCount - shieldDomeStart };
-
-        batches.plume = { first: plumeStart, count: instCount - plumeStart };
+        batches.shieldRing = { first: shieldRingStart, count: instCount - shieldRingStart };
 
         // 7. EXPLOSION PARTICLES & HIGH-SPEED AIR STREAM LINES
         const shardStart = instCount;
