@@ -997,6 +997,105 @@
       }
       const meshLightningBolt = gb.endMesh(boltMarker);
 
+      const eliteMarker = gb.beginMesh();
+      {
+        const COL_ELITE_SHELL = [0.30, 0.22, 0.16];
+        const COL_ELITE_NOSE  = [0.44, 0.33, 0.22];
+        const COL_ELITE_BELLY = [0.18, 0.14, 0.12];
+        const COL_ELITE_GLASS = [0.16, 0.34, 0.40];
+        const COL_ELITE_TRIM  = [0.78, 0.20, 0.12];
+        const COL_ELITE_HOT   = [1.00, 0.55, 0.18];
+
+        const e0 = makeFuselageRing(-3.40, 0.10, -0.05, 0.06, -0.22, 0.55);
+        const e1 = makeFuselageRing(-2.30, 0.58,  0.00, 0.38, -0.58, 0.62);
+        const e2 = makeFuselageRing(-1.00, 0.88,  0.06, 0.74, -0.74, 0.66);
+        const e3 = makeFuselageRing( 0.60, 0.78,  0.05, 0.62, -0.66, 0.66);
+        const e4 = makeFuselageRing( 2.00, 0.34,  0.02, 0.30, -0.32, 0.60);
+
+        gb.addLoftSection(e0, e1, COL_ELITE_NOSE, COL_ELITE_NOSE, COL_ELITE_BELLY, MAT_METAL);
+        gb.addLoftSection(e1, e2, COL_ELITE_SHELL, COL_ELITE_GLASS, COL_ELITE_BELLY, MAT_GRAPHITE);
+        gb.addLoftSection(e2, e3, COL_ELITE_SHELL, COL_ELITE_SHELL, COL_ELITE_BELLY, MAT_GRAPHITE);
+        gb.addLoftSection(e3, e4, COL_ELITE_NOSE, COL_ELITE_TRIM, COL_ELITE_BELLY, MAT_METAL);
+
+        const tb0 = makeFuselageRing(2.00, 0.28, 0.02, 0.26, -0.26, 0.60);
+        const tb1 = makeFuselageRing(4.40, 0.17, 0.02, 0.16, -0.16, 0.60);
+        const tb2 = makeFuselageRing(6.80, 0.11, 0.02, 0.12, -0.12, 0.60);
+        gb.addLoftSection(tb0, tb1, COL_ELITE_SHELL, COL_ELITE_SHELL, COL_ELITE_BELLY, MAT_GRAPHITE);
+        gb.addLoftSection(tb1, tb2, COL_ELITE_SHELL, COL_ELITE_SHELL, COL_ELITE_BELLY, MAT_GRAPHITE);
+
+        gb.addQuad([0.0, 0.10, 5.10], [0.0, 0.10, 6.90], [0.0, 1.55, 6.60], [0.0, 1.50, 5.35], COL_ELITE_TRIM, MAT_METAL);
+        gb.addQuad([0.0, 1.50, 5.35], [0.0, 1.55, 6.60], [0.0, 0.10, 6.90], [0.0, 0.10, 5.10], COL_ELITE_SHELL, MAT_METAL);
+        addCylinderZ(0.0, 1.15, 6.55, 6.85, 0.34, 0.30, 8, COL_ELITE_BELLY, MAT_GRAPHITE);
+
+        gb.addSymmetricAirfoil(
+          [0.62, 0.06, -1.10],
+          [0.62, 0.06,  0.80],
+          0.10,
+          [2.40, 0.18, -0.95],
+          [2.40, 0.18,  0.65],
+          0.05,
+          COL_ELITE_SHELL,
+          COL_ELITE_NOSE,
+          COL_ELITE_TRIM,
+          MAT_METAL,
+          MAT_GRAPHITE
+        );
+
+        for (const sign of [-1, 1]) {
+          addCylinderZ(2.20 * sign, -0.22, -0.95, 0.65, 0.24, 0.24, 6, COL_ELITE_NOSE, MAT_METAL);
+          addCylinderZ(2.20 * sign, -0.22, 0.60, 0.78, 0.20, 0.14, 6, COL_ELITE_HOT, MAT_ACCENT);
+          addCylinderZ(0.62 * sign, -1.05, -1.00, 1.30, 0.075, 0.075, 5, COL_ELITE_BELLY, MAT_METAL);
+          addCylinderZ(0.62 * sign, -0.55, -0.55, -0.20, 0.06, 0.06, 5, COL_ELITE_BELLY, MAT_METAL);
+          addCylinderZ(0.62 * sign, -0.55, 0.35, 0.75, 0.06, 0.06, 5, COL_ELITE_BELLY, MAT_METAL);
+          addCylinderZ(0.30 * sign, 0.75, -1.30, 0.60, 0.05, 0.05, 5, COL_ELITE_TRIM, MAT_METAL);
+        }
+
+        addCylinderZ(0.0, 1.05, -0.30, 0.30, 0.26, 0.24, 8, COL_ELITE_BELLY, MAT_METAL);
+        addCylinderZ(0.0, 0.35, -3.10, -2.60, 0.10, 0.16, 6, COL_ELITE_HOT, MAT_EMISSIVE);
+      }
+      const meshEliteHelicopter = gb.endMesh(eliteMarker);
+
+      const rotorMarker = gb.beginMesh();
+      {
+        const COL_ROTOR_BLADE = [0.22, 0.24, 0.28];
+        const COL_ROTOR_TIP   = [0.80, 0.72, 0.55];
+        const bladeReach = 2.70;
+        const chord = 0.36;
+        const thick = 0.045;
+
+        gb.addQuad(
+          [ bladeReach, thick,  chord * 0.5],
+          [ bladeReach, thick, -chord * 0.5],
+          [-bladeReach, thick, -chord * 0.5],
+          [-bladeReach, thick,  chord * 0.5],
+          COL_ROTOR_BLADE, MAT_METAL
+        );
+        gb.addQuad(
+          [-bladeReach, -thick,  chord * 0.5],
+          [-bladeReach, -thick, -chord * 0.5],
+          [ bladeReach, -thick, -chord * 0.5],
+          [ bladeReach, -thick,  chord * 0.5],
+          COL_ROTOR_BLADE, MAT_METAL
+        );
+        gb.addQuad(
+          [ chord * 0.5, thick,  bladeReach],
+          [-chord * 0.5, thick,  bladeReach],
+          [-chord * 0.5, thick, -bladeReach],
+          [ chord * 0.5, thick, -bladeReach],
+          COL_ROTOR_BLADE, MAT_METAL
+        );
+        gb.addQuad(
+          [ chord * 0.5, -thick, -bladeReach],
+          [-chord * 0.5, -thick, -bladeReach],
+          [-chord * 0.5, -thick,  bladeReach],
+          [ chord * 0.5, -thick,  bladeReach],
+          COL_ROTOR_BLADE, MAT_METAL
+        );
+
+        addCylinderZ(0.0, 0.0, -0.16, 0.16, 0.24, 0.24, 8, COL_ROTOR_TIP, MAT_METAL);
+      }
+      const meshEliteRotor = gb.endMesh(rotorMarker);
+
       return {
         vertexData: new Float32Array(gb.vertices),
         indexData: new Uint32Array(gb.indices),
@@ -1017,7 +1116,9 @@
           blastSphere: meshBlastSphere,
           blastRing: meshBlastRing,
           voltFighter: meshVoltFighter,
-          lightningBolt: meshLightningBolt
+          lightningBolt: meshLightningBolt,
+          eliteHelicopter: meshEliteHelicopter,
+          eliteRotor: meshEliteRotor
         }
       };
     }

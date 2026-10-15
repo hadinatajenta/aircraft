@@ -82,14 +82,28 @@
     const ESCORT_COUNT              = 2;
     const ESCORT_GUNNER_HP          = 70;
     const ESCORT_GUARDIAN_HP        = 50;
-    const ESCORT_GUARDIAN_SHIELD    = 40;
+    const ESCORT_GUARDIAN_SHIELD    = 22;
     const ESCORT_COOLDOWN           = 12.0;
-    const ESCORT_FIRE_INTERVAL      = 0.12;
-    const ESCORT_LASER_DAMAGE       = 2;
+    const ESCORT_FIRE_INTERVAL      = 0.20;
+    const ESCORT_LASER_DAMAGE       = 1;
     const ESCORT_LASER_SPEED        = 240.0;
     const ESCORT_HIT_RADIUS_SQ      = 24.0;
     const ESCORT_GUARD_RANGE        = 16.0;
     const ESCORT_TARGET_RANGE       = 150.0;
+
+    const ELITE_SPAWN_CHANCE        = 0.20;
+    const ELITE_FIRST_SPAWN_TIME    = 18.0;
+    const ELITE_HELICOPTER_HP       = 14;
+    const ELITE_CRASH_DAMAGE        = 30;
+    const ELITE_SCORE               = 500;
+    const ELITE_ROCKET_INTERVAL     = 5.0;
+    const ELITE_ROCKET_SPEED        = 34.0;
+    const ELITE_ROCKET_HP           = 12;
+    const ELITE_ROCKET_DAMAGE       = 34;
+    const ELITE_ROCKET_TRIGGER      = 3.4;
+    const ELITE_ROCKET_LIFE         = 9.0;
+    const ELITE_ROCKET_HIT_RADIUS_SQ = 46.0;
+    const MAX_ELITE_ROCKETS         = 6;
 
     class SkystrikeSimulation {
       constructor() {
@@ -168,6 +182,11 @@
 
         this.speedLines = Array.from({ length: MAX_SPEEDLINES }, () => ({
           x: 0, y: 0, z: 0, len: 1
+        }));
+
+        this.eliteRockets = Array.from({ length: MAX_ELITE_ROCKETS }, () => ({
+          active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+          yaw: 0, pitch: 0, roll: 0, hp: 0, maxHp: ELITE_ROCKET_HP, life: 0, trailTimer: 0, hitFlash: 0
         }));
 
         this.escortDrones = Array.from({ length: ESCORT_COUNT }, (_, idx) => ({
@@ -291,6 +310,7 @@
         for (const m of this.missiles) m.active = false;
         for (const pt of this.particles) pt.active = false;
         for (const blast of this.blasts) blast.active = false;
+        for (const rocket of this.eliteRockets) rocket.active = false;
         for (const d of this.drones) d.active = false;
         for (const sd of this.swarmDrones) {
           sd.active = false;
@@ -689,6 +709,7 @@
 
         let freeIdx = -1;
         let heavyGunshipCount = 0;
+        let eliteCount = 0;
         for (let i = 0; i < MAX_DRONES; i++) {
           const drone = this.drones[i];
           if (!drone.active) {
@@ -696,15 +717,17 @@
             continue;
           }
           if (drone.enemyType === 1) heavyGunshipCount++;
+          if (drone.enemyType === 2) eliteCount++;
         }
         if (freeIdx === -1) return;
 
         const d = this.drones[freeIdx];
         d.active = true;
         this.swarmSpawnCounter++;
-        const isHeavy = heavyGunshipCount < MAX_HEAVY_GUNSHIPS
+        const isElite = eliteCount === 0 && this.time > ELITE_FIRST_SPAWN_TIME && Math.random() < ELITE_SPAWN_CHANCE;
+        const isHeavy = !isElite && heavyGunshipCount < MAX_HEAVY_GUNSHIPS
           && ((this.swarmSpawnCounter % 4 === 0) || (Math.random() < 0.25));
-        d.enemyType = isHeavy ? 1 : 0;
+        d.enemyType = isElite ? 2 : (isHeavy ? 1 : 0);
 
         // Alternate between left (-1) and right (+1) Mothership Hangar Launch Bays
         const baySide = ms.nextBaySide;
@@ -730,16 +753,22 @@
         d.x = d.spawnX;
         d.y = d.spawnY;
         d.z = bayWorldZ;
-        d.vz = isHeavy ? (31.0 + Math.random() * 9.0) : (38.0 + Math.random() * 12.0);
+        d.vz = isElite
+          ? (24.0 + Math.random() * 6.0)
+          : (isHeavy ? (31.0 + Math.random() * 9.0) : (38.0 + Math.random() * 12.0));
         d.phase = Math.random() * Math.PI * 2;
         d.spin = 0;
         d.bankAngle = 0;
         d.stunned = false;
         d.stunTimer = 0;
-        d.stationZ = isHeavy ? (-88.0 - Math.random() * 46.0) : 0.0;
-        d.fireTimer = isHeavy ? 1.2 + Math.random() * 1.0 : 0.0;
+        d.stationZ = isElite
+          ? (-96.0 - Math.random() * 36.0)
+          : (isHeavy ? (-88.0 - Math.random() * 46.0) : 0.0);
+        d.fireTimer = isElite
+          ? ELITE_ROCKET_INTERVAL
+          : (isHeavy ? 1.2 + Math.random() * 1.0 : 0.0);
         d.muzzleFlash = 0;
-        d.maxHp = isHeavy ? 6 : 1;
+        d.maxHp = isElite ? ELITE_HELICOPTER_HP : (isHeavy ? 6 : 1);
         d.hp = d.maxHp;
         d.hitFlash = 0.35; // Brief ignition glow on launch
 
@@ -911,6 +940,53 @@
         gunship.muzzleFlash = 0.11;
       }
 
+      launchEliteRocket(helicopter) {
+        for (let i = 0; i < MAX_ELITE_ROCKETS; i++) {
+          const rocket = this.eliteRockets[i];
+          if (rocket.active) continue;
+          rocket.active = true;
+          rocket.x = helicopter.x;
+          rocket.y = helicopter.y - 1.5;
+          rocket.z = helicopter.z;
+          rocket.vx = 0;
+          rocket.vy = 0;
+          rocket.vz = ELITE_ROCKET_SPEED;
+          rocket.yaw = 0;
+          rocket.pitch = 0;
+          rocket.roll = 0;
+          rocket.hp = ELITE_ROCKET_HP;
+          rocket.maxHp = ELITE_ROCKET_HP;
+          rocket.life = ELITE_ROCKET_LIFE;
+          rocket.trailTimer = 0;
+          rocket.hitFlash = 0;
+          helicopter.muzzleFlash = 0.55;
+
+          for (let k = 0; k < 8; k++) {
+            this.spawnTrailParticle(
+              rocket.x, rocket.y, rocket.z,
+              (Math.random() - 0.5) * 12.0, (Math.random() - 0.5) * 12.0, 16.0,
+              1.0, 0.58, 0.20, 0.55, 0.34
+            );
+          }
+          return;
+        }
+      }
+
+      damageEliteRocket(rocket, amount, hitX, hitY, hitZ) {
+        if (!rocket.active) return;
+        rocket.hp -= amount;
+        rocket.hitFlash = 1.0;
+        this.spawnTrailParticle(hitX, hitY, hitZ, 0, 0, 0, 1.0, 0.72, 0.32, 0.42, 0.22);
+        if (rocket.hp > 0) return;
+
+        rocket.active = false;
+        this.score += 140;
+        this.spawnBlast(rocket.x, rocket.y, rocket.z, 15.0, 0.55, 0.92, 1.0);
+        this.spawnExplosion(rocket.x, rocket.y, rocket.z, 36, 1.5);
+        if (!this.reducedMotion) this.cam.shake = Math.min(0.5, this.cam.shake + 0.2);
+        this.updateHUD();
+      }
+
       spawnBlast(x, y, z, radius, r, g, b, kind) {
         for (let i = 0; i < MAX_BLASTS; i++) {
           const blast = this.blasts[i];
@@ -1042,6 +1118,19 @@
         const dirX = -sy * cp;
         const dirY = sp;
         const dirZ = -cy * cp;
+
+        const rocketTarget = this.findArcBeamTarget(this.eliteRockets, j.x, j.y, j.z, dirX, dirY, dirZ);
+        if (rocketTarget) {
+          j.arcHit = true;
+          j.arcChainA = false;
+          j.arcChainB = false;
+          j.arcEndX = rocketTarget.x;
+          j.arcEndY = rocketTarget.y;
+          j.arcEndZ = rocketTarget.z;
+          j.muzzleFlashTimer = 0.05;
+          this.damageEliteRocket(rocketTarget, ARC_BEAM_DPS * dt, rocketTarget.x, rocketTarget.y, rocketTarget.z);
+          return;
+        }
 
         const droneTarget = this.findArcBeamTarget(this.drones, j.x, j.y, j.z, dirX, dirY, dirZ);
         const shieldTarget = this.findArcBeamTarget(this.shieldDrones, j.x, j.y, j.z, dirX, dirY, dirZ);
@@ -1776,15 +1865,28 @@
             continue;
           }
 
+          for (let r = 0; r < MAX_ELITE_ROCKETS; r++) {
+            const rocket = this.eliteRockets[r];
+            if (!rocket.active) continue;
+            const rdx = p.x - rocket.x;
+            const rdy = p.y - rocket.y;
+            const rdz = p.z - rocket.z;
+            if (rdx * rdx + rdy * rdy + rdz * rdz < ELITE_ROCKET_HIT_RADIUS_SQ) {
+              p.active = false;
+              this.damageEliteRocket(rocket, p.damage, p.x, p.y, p.z);
+              break;
+            }
+          }
+
           // Check collision against active enemy drones
-          for (let k = 0; k < MAX_DRONES; k++) {
+          if (p.active) for (let k = 0; k < MAX_DRONES; k++) {
             const d = this.drones[k];
             if (!d.active) continue;
 
             const dx = p.x - d.x;
             const dy = p.y - d.y;
             const dz = p.z - d.z;
-            const hitRadiusSq = d.enemyType === 1 ? 16.5 : 9.6;
+            const hitRadiusSq = d.enemyType === 2 ? 26.0 : (d.enemyType === 1 ? 16.5 : 9.6);
             if (dx * dx + dy * dy + dz * dz < hitRadiusSq) {
               p.active = false;
               d.hp -= p.damage;
@@ -1792,7 +1894,7 @@
 
               if (d.hp <= 0) {
                 d.active = false;
-                const pts = d.enemyType === 1 ? 250 : 100;
+                const pts = d.enemyType === 2 ? ELITE_SCORE : (d.enemyType === 1 ? 250 : 100);
                 this.score += pts;
                 this.targetsDestroyed += 1;
                 this.updateHUD();
@@ -1804,7 +1906,7 @@
                 if (!this.reducedMotion) {
                   this.cam.shake = Math.min(0.55, this.cam.shake + (d.enemyType === 1 ? 0.34 : 0.22));
                 }
-                this.spawnBlast(d.x, d.y, d.z, d.enemyType === 1 ? 10.0 : 7.0, 1.0, 0.68, 0.26);
+                this.spawnBlast(d.x, d.y, d.z, d.enemyType === 2 ? 14.0 : (d.enemyType === 1 ? 10.0 : 7.0), 1.0, 0.68, 0.26);
               } else {
                 this.score += 25;
                 this.updateHUD();
@@ -1956,19 +2058,19 @@
             const cdx = m.x - d.x;
             const cdy = m.y - d.y;
             const cdz = m.z - d.z;
-            const mHitRadSq = d.enemyType === 1 ? 22.0 : 14.5;
+            const mHitRadSq = d.enemyType === 2 ? 32.0 : (d.enemyType === 1 ? 22.0 : 14.5);
             if (cdx * cdx + cdy * cdy + cdz * cdz < mHitRadSq) {
               m.active = false;
               d.active = false;
-              this.score += d.enemyType === 1 ? 300 : 150;
+              this.score += d.enemyType === 2 ? 620 : (d.enemyType === 1 ? 300 : 150);
               this.targetsDestroyed += 1;
               this.updateHUD();
 
-              this.spawnBlast(d.x, d.y, d.z, d.enemyType === 1 ? 16.0 : 12.0, 1.0, 0.66, 0.22);
+              this.spawnBlast(d.x, d.y, d.z, d.enemyType === 2 ? 20.0 : (d.enemyType === 1 ? 16.0 : 12.0), 1.0, 0.66, 0.22);
               this.spawnExplosion(
                 d.x, d.y, d.z,
-                d.enemyType === 1 ? 48 : 38,
-                d.enemyType === 1 ? 1.65 : 1.45
+                d.enemyType === 2 ? 58 : (d.enemyType === 1 ? 48 : 38),
+                d.enemyType === 2 ? 1.9 : (d.enemyType === 1 ? 1.65 : 1.45)
               );
               if (!this.reducedMotion) this.cam.shake = Math.min(0.6, this.cam.shake + 0.34);
 
@@ -2128,6 +2230,55 @@
 
         this.refreshMothershipShieldState();
 
+        for (let i = 0; i < MAX_ELITE_ROCKETS; i++) {
+          const rocket = this.eliteRockets[i];
+          if (!rocket.active) continue;
+
+          rocket.life -= dt;
+          if (rocket.life <= 0 || rocket.z > 26.0) {
+            rocket.active = false;
+            this.spawnBlast(rocket.x, rocket.y, rocket.z, 10.0, 1.0, 0.62, 0.2);
+            continue;
+          }
+
+          const rdx = j.x - rocket.x;
+          const rdy = j.y - rocket.y;
+          const rdz = j.z - rocket.z;
+          const rocketDistance = Math.hypot(rdx, rdy, rdz) || 1.0;
+          const steerLerp = 1.0 - Math.exp(-1.6 * dt);
+
+          rocket.vx += ((rdx / rocketDistance) * ELITE_ROCKET_SPEED - rocket.vx) * steerLerp;
+          rocket.vy += ((rdy / rocketDistance) * ELITE_ROCKET_SPEED - rocket.vy) * steerLerp;
+          rocket.vz += ((rdz / rocketDistance) * ELITE_ROCKET_SPEED - rocket.vz) * steerLerp;
+
+          rocket.x += rocket.vx * dt;
+          rocket.y += rocket.vy * dt;
+          rocket.z += rocket.vz * dt;
+
+          const rocketSpeed = Math.hypot(rocket.vx, rocket.vy, rocket.vz) || 1.0;
+          rocket.pitch = Math.asin(Math.max(-0.99, Math.min(0.99, rocket.vy / rocketSpeed)));
+          rocket.yaw = Math.atan2(-rocket.vx / rocketSpeed, -rocket.vz / rocketSpeed);
+          rocket.roll += dt * 4.0;
+
+          if (rocket.hitFlash > 0) rocket.hitFlash = Math.max(0, rocket.hitFlash - dt * 5.0);
+
+          rocket.trailTimer -= dt;
+          if (rocket.trailTimer <= 0) {
+            rocket.trailTimer = 0.02;
+            this.spawnTrailParticle(rocket.x, rocket.y, rocket.z, 0, 0, 0, 1.0, 0.55, 0.22, 0.52, 0.3);
+            this.spawnTrailParticle(rocket.x, rocket.y, rocket.z, 0, 0.6, 0, 0.82, 0.88, 0.96, 0.58, 0.5);
+          }
+
+          if (rocketDistance < ELITE_ROCKET_TRIGGER) {
+            rocket.active = false;
+            this.spawnBlast(rocket.x, rocket.y, rocket.z, 19.0, 1.0, 0.66, 0.22);
+            this.spawnExplosion(rocket.x, rocket.y, rocket.z, 48, 1.9);
+            if (!this.reducedMotion) this.cam.shake = Math.min(0.85, this.cam.shake + 0.5);
+            this.applyJetDamage(ELITE_ROCKET_DAMAGE, rocket.x, rocket.y, rocket.z, 1.5);
+            continue;
+          }
+        }
+
         // 6. Update Enemy Drones & Controlled Launch from Mothership Hangar Bays
         let activeDroneCount = 0;
         for (let i = 0; i < MAX_DRONES; i++) {
@@ -2160,7 +2311,24 @@
           }
 
           let patrolX, patrolY;
-          if (d.enemyType === 1) {
+          if (d.enemyType === 2) {
+            d.phase += dt * 0.7;
+            d.spin += dt * 0.5;
+            d.bankAngle = Math.sin(d.phase) * 0.10;
+            patrolX = d.baseX + Math.sin(d.phase) * 4.2;
+            patrolY = d.baseY + Math.cos(d.phase * 0.6) * 1.3;
+
+            d.z = Math.min(d.stationZ, d.z + d.vz * dt);
+
+            if (d.muzzleFlash > 0) d.muzzleFlash = Math.max(0, d.muzzleFlash - dt * 1.6);
+            if (!this.gameOver) {
+              d.fireTimer -= dt;
+              if (d.fireTimer <= 0) {
+                d.fireTimer = ELITE_ROCKET_INTERVAL;
+                this.launchEliteRocket(d);
+              }
+            }
+          } else if (d.enemyType === 1) {
             // Heavy Interceptor Gunship: advances to a firing station and then holds it like the Mothership
             d.phase += dt * 1.35;
             d.spin += dt * 1.4;
@@ -2199,14 +2367,14 @@
           const jdx = d.x - j.x;
           const jdy = d.y - j.y;
           const jdz = d.z - j.z;
-          const crashRadSq = d.enemyType === 1 ? 16.0 : 11.5;
+          const crashRadSq = d.enemyType === 2 ? 24.0 : (d.enemyType === 1 ? 16.0 : 11.5);
           if (!this.gameOver && jdx * jdx + jdy * jdy + jdz * jdz < crashRadSq) {
             d.active = false;
             if (!this.reducedMotion) this.cam.shake = 0.45;
             this.applyJetDamage(
-              d.enemyType === 1 ? HEAVY_CRASH_DAMAGE : RECON_CRASH_DAMAGE,
+              d.enemyType === 2 ? ELITE_CRASH_DAMAGE : (d.enemyType === 1 ? HEAVY_CRASH_DAMAGE : RECON_CRASH_DAMAGE),
               d.x, d.y, d.z,
-              d.enemyType === 1 ? 1.3 : 1.0
+              d.enemyType === 2 ? 1.6 : (d.enemyType === 1 ? 1.3 : 1.0)
             );
             continue;
           }
@@ -2557,6 +2725,35 @@
         }
         batches.heavyDrone = { first: heavyDroneStart, count: instCount - heavyDroneStart };
 
+        // 3A3. ELITE HELICOPTER GUNSHIP AND ITS SPINNING ROTOR
+        const eliteStart = instCount;
+        for (let i = 0; i < MAX_DRONES; i++) {
+          const d = this.drones[i];
+          if (!d.active || d.enemyType !== 2) continue;
+          pushInstance(
+            d.x, d.y, d.z,
+            0, 0.04, d.bankAngle,
+            1.5, 1.5, 1.5,
+            1, 1, 1, 1,
+            0, 0.85, 0.5, d.hitFlash
+          );
+        }
+        batches.eliteHelicopter = { first: eliteStart, count: instCount - eliteStart };
+
+        const rotorStart = instCount;
+        for (let i = 0; i < MAX_DRONES; i++) {
+          const d = this.drones[i];
+          if (!d.active || d.enemyType !== 2) continue;
+          pushInstance(
+            d.x, d.y + 1.58, d.z,
+            this.time * 14.0, 0, 0,
+            1.5, 1.5, 1.5,
+            1, 1, 1, 1,
+            0, 0.6, 0.5, 0
+          );
+        }
+        batches.eliteRotor = { first: rotorStart, count: instCount - rotorStart };
+
         // 3A2. MOTHERSHIP SHIELD PROJECTOR DRONES (Shield ring and kamikaze escalation)
         const shieldDroneStart = instCount;
         for (let i = 0; i < SHIELD_DRONE_COUNT; i++) {
@@ -2586,6 +2783,17 @@
             1.15, 1.15, 1.15,
             1, 1, 1, 1,
             0, 0.4, 0.5, 0
+          );
+        }
+        for (let i = 0; i < MAX_ELITE_ROCKETS; i++) {
+          const rocket = this.eliteRockets[i];
+          if (!rocket.active) continue;
+          pushInstance(
+            rocket.x, rocket.y, rocket.z,
+            rocket.yaw, rocket.pitch, rocket.roll,
+            2.6, 2.6, 2.6,
+            1.0, 0.55, 0.45, 1,
+            0, 0.5, 0.5, rocket.hitFlash
           );
         }
         batches.missile = { first: missileStart, count: instCount - missileStart };

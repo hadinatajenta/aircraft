@@ -579,6 +579,12 @@
         if (b.heavyDrone.count > 0) {
           renderPass.drawIndexed(meshes.heavyDrone.indexCount, b.heavyDrone.count, meshes.heavyDrone.firstIndex, 0, b.heavyDrone.first);
         }
+        if (b.eliteHelicopter.count > 0) {
+          renderPass.drawIndexed(meshes.eliteHelicopter.indexCount, b.eliteHelicopter.count, meshes.eliteHelicopter.firstIndex, 0, b.eliteHelicopter.first);
+        }
+        if (b.eliteRotor.count > 0) {
+          renderPass.drawIndexed(meshes.eliteRotor.indexCount, b.eliteRotor.count, meshes.eliteRotor.firstIndex, 0, b.eliteRotor.first);
+        }
         if (b.shieldDrone.count > 0) {
           renderPass.drawIndexed(meshes.shieldDrone.indexCount, b.shieldDrone.count, meshes.shieldDrone.firstIndex, 0, b.shieldDrone.first);
         }
